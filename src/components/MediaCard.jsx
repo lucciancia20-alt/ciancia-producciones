@@ -55,11 +55,14 @@ export default function MediaCard({ media, onView, onDelete }) {
         {/* ── Capa de marcas de agua (sin fondo oscuro) ─────────────── */}
         <div className="absolute inset-0 pointer-events-none select-none overflow-hidden">
 
-          {/* Patrón repetido sutil — grid 3×3 */}
-          <div className="absolute inset-0 grid grid-cols-3 grid-rows-3">
-            {Array.from({ length: 9 }).map((_, i) => (
+          {/* Patrón repetido sutil — grid 2×2 espaciado sin superposición */}
+          <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 gap-6 p-4">
+            {Array.from({ length: 4 }).map((_, i) => (
               <div key={i} className="flex items-center justify-center">
-                <span className="text-white/15 font-black text-[8px] tracking-widest rotate-[-30deg] whitespace-nowrap leading-none">
+                <span
+                  className="text-white/15 font-black text-[8px] rotate-[-28deg] whitespace-nowrap leading-none"
+                  style={{ letterSpacing: '0.24em', wordSpacing: '0.4em' }}
+                >
                   CIANCIA PROD.
                 </span>
               </div>
@@ -68,13 +71,14 @@ export default function MediaCard({ media, onView, onDelete }) {
 
           {/* Marca central prominente sutil diagonal */}
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="rotate-[-30deg] text-center">
+            <div className="rotate-[-28deg] text-center">
               <p
-                className="font-black text-[11px] tracking-widest whitespace-nowrap"
+                className="font-black text-[10px] sm:text-[11px] whitespace-nowrap"
                 style={{
                   color: 'rgba(255,255,255,0.28)',
                   textShadow: '0 1px 3px rgba(0,0,0,0.6), 0 0 6px rgba(0,0,0,0.4)',
-                  letterSpacing: '0.18em',
+                  letterSpacing: '0.24em',
+                  wordSpacing: '0.42em',
                 }}
               >
                 CIANCIA PRODUCCIONES

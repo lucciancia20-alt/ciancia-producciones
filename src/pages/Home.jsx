@@ -58,13 +58,17 @@ function formatDate(ts) {
 
 // ─── Mini Demo Interactiva de Lupa 2x para el modal "Anticaptura" ─────────────
 function MiniLoupeDemo() {
-  const [pos, setPos] = useState({ x: 50, y: 50, active: false });
+  const LOUPE_SIZE = 136;
+  const LOUPE_R    = LOUPE_SIZE / 2;
+  const ZOOM       = 2;
+  const [pos, setPos] = useState({ x: 180, y: 110, w: 560, h: 240, active: false });
   const sampleImg = 'https://images.unsplash.com/photo-1551632811-561732d1e306?w=900&auto=format&fit=crop&q=80';
 
   const updatePos = (clientX, clientY, rect) => {
-    const x = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
-    const y = Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100));
-    setPos({ x, y, active: true });
+    if (!rect || !rect.width || !rect.height) return;
+    const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
+    const y = Math.max(0, Math.min(rect.height, clientY - rect.top));
+    setPos({ x, y, w: rect.width, h: rect.height, active: true });
   };
 
   return (
@@ -85,29 +89,70 @@ function MiniLoupeDemo() {
         draggable={false}
       />
 
-      {/* Marca de agua de muestra */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <span className="rotate-[-24deg] text-white/45 font-black text-lg sm:text-2xl tracking-widest drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
-          CIANCIA PRODUCCIONES
-        </span>
+      {/* Marca de agua de muestra con espaciado amplio y limpio */}
+      <div className="absolute inset-0 pointer-events-none select-none overflow-hidden">
+        <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 gap-10 p-6">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="flex items-center justify-center">
+              <span
+                className="rotate-[-24deg] text-white/15 font-black text-[9px] sm:text-[10px] whitespace-nowrap"
+                style={{ letterSpacing: '0.28em', wordSpacing: '0.5em' }}
+              >
+                CIANCIA PRODUCCIONES
+              </span>
+            </div>
+          ))}
+        </div>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span
+            className="rotate-[-24deg] text-white/40 font-black text-base sm:text-xl whitespace-nowrap drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]"
+            style={{ letterSpacing: '0.26em', wordSpacing: '0.45em' }}
+          >
+            CIANCIA PRODUCCIONES
+          </span>
+        </div>
       </div>
 
-      {/* Lupa interactiva 2x */}
+      {/* Lupa interactiva con Zoom In REAL de 2x (basado en dimensiones exactas del contenedor) */}
       {pos.active && (
         <div
-          className="absolute w-28 h-28 rounded-full border-2 border-neon-green shadow-neon pointer-events-none overflow-hidden"
+          className="absolute rounded-full border-2 border-neon-green shadow-neon pointer-events-none overflow-hidden bg-dark-900"
           style={{
-            left:               `${pos.x}%`,
-            top:                `${pos.y}%`,
-            transform:          'translate(-50%, -50%)',
-            backgroundImage:    `url(${sampleImg})`,
-            backgroundRepeat:   'no-repeat',
-            backgroundSize:     '240% 240%',
-            backgroundPosition: `${pos.x}% ${pos.y}%`,
+            width:  `${LOUPE_SIZE}px`,
+            height: `${LOUPE_SIZE}px`,
+            left:   `${pos.x - LOUPE_R}px`,
+            top:    `${pos.y - LOUPE_R}px`,
           }}
         >
-          <div className="w-full h-full flex items-center justify-center">
-            <div className="w-3 h-3 border border-neon-green/80 rounded-full" />
+          {/* Capa interna escalada exactamente al doble (2x) del contenedor */}
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              width:  `${pos.w * ZOOM}px`,
+              height: `${pos.h * ZOOM}px`,
+              left:   `${LOUPE_R - pos.x * ZOOM}px`,
+              top:    `${LOUPE_R - pos.y * ZOOM}px`,
+            }}
+          >
+            <img
+              src={sampleImg}
+              alt=""
+              className="w-full h-full object-cover"
+              draggable={false}
+            />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span
+                className="rotate-[-24deg] text-white/35 font-black text-3xl sm:text-4xl whitespace-nowrap drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]"
+                style={{ letterSpacing: '0.26em', wordSpacing: '0.45em' }}
+              >
+                CIANCIA PRODUCCIONES
+              </span>
+            </div>
+          </div>
+
+          {/* Mira central */}
+          <div className="relative z-10 w-full h-full flex items-center justify-center">
+            <div className="w-3.5 h-3.5 border border-neon-green/80 rounded-full" />
           </div>
         </div>
       )}

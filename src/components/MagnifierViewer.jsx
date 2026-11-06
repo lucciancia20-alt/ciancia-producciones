@@ -4,30 +4,33 @@ import { useCart } from '../context/CartContext';
 
 const LUPE_RADIUS    = 125;
 const ZOOM_FACTOR    = 2;
-const WATERMARK_TEXT = 'CIANCIA PRODUCCIONES';
+const WATERMARK_TEXT = 'CIANCIA   PRODUCCIONES';
 
 function formatPrice(n) {
   return `$${(n || 0).toLocaleString('es-AR')}`;
 }
 
 // ─── Dibuja todas las marcas de agua sobre el ctx actual ─────────────────────
-// Adapta el tamaño tipográfico a la dimensión menor (Math.min(W, H)) para que
-// tanto en fotos horizontales como verticales (9:16 / 3:4) quede proporcionado.
+// Adapta el tamaño tipográfico a la dimensión menor (Math.min(W, H)) con
+// letter-spacing y separación amplia entre repeticiones para que nunca colisionen.
 function drawWatermarks(ctx, W, H) {
   const minDim = Math.min(W, H);
 
-  // ── 1) Patrón repetido sutil ─────────────────────────────────────────────
-  const smallSize = Math.max(11, Math.round(minDim / 42));
+  // ── 1) Patrón repetido sutil con amplia separación ────────────────────────
+  const smallSize = Math.max(11, Math.round(minDim / 44));
   ctx.save();
   ctx.globalAlpha  = 0.15;
   ctx.fillStyle    = 'white';
   ctx.font         = `900 ${smallSize}px "Inter", "Arial Black", sans-serif`;
   ctx.textAlign    = 'center';
   ctx.textBaseline = 'middle';
+  if ('letterSpacing' in ctx) {
+    ctx.letterSpacing = `${Math.max(2, Math.round(smallSize * 0.24))}px`;
+  }
 
   const measured = ctx.measureText(WATERMARK_TEXT).width;
-  const stepX    = measured + 50;
-  const stepY    = smallSize * 4.5;
+  const stepX    = Math.round(measured * 1.65 + 110);
+  const stepY    = Math.round(Math.max(smallSize * 8.5, measured * 0.62));
 
   for (let row = -2; row < H / stepY + 3; row++) {
     for (let col = -1; col < W / stepX + 2; col++) {
@@ -41,14 +44,17 @@ function drawWatermarks(ctx, W, H) {
   }
   ctx.restore();
 
-  // ── 2) Marca central prominente sutil ─────────────────────────────────────
-  const bigSize = Math.max(22, Math.round(minDim / 12));
+  // ── 2) Marca central prominente sutil con letter-spacing amplio ───────────
+  const bigSize = Math.max(20, Math.round(minDim / 14));
   ctx.save();
   ctx.translate(W / 2, H / 2);
   ctx.rotate(-Math.PI / 6);
   ctx.textAlign    = 'center';
   ctx.textBaseline = 'middle';
   ctx.font         = `900 ${bigSize}px "Inter", "Arial Black", sans-serif`;
+  if ('letterSpacing' in ctx) {
+    ctx.letterSpacing = `${Math.max(4, Math.round(bigSize * 0.22))}px`;
+  }
 
   ctx.shadowColor   = 'rgba(0,0,0,0.45)';
   ctx.shadowBlur    = 6;
@@ -59,10 +65,14 @@ function drawWatermarks(ctx, W, H) {
   ctx.fillStyle   = 'white';
   ctx.fillText(WATERMARK_TEXT, 0, 0);
 
-  // Segunda línea más pequeña
+  // Segunda línea más pequeña con buen aire vertical
+  const subSize = Math.round(bigSize * 0.48);
   ctx.globalAlpha = 0.16;
-  ctx.font        = `900 ${Math.round(bigSize * 0.52)}px "Inter", "Arial Black", sans-serif`;
-  ctx.fillText(WATERMARK_TEXT, 0, bigSize * 1.5);
+  ctx.font        = `900 ${subSize}px "Inter", "Arial Black", sans-serif`;
+  if ('letterSpacing' in ctx) {
+    ctx.letterSpacing = `${Math.max(3, Math.round(subSize * 0.25))}px`;
+  }
+  ctx.fillText(WATERMARK_TEXT, 0, bigSize * 1.85);
 
   ctx.restore();
 }
@@ -117,17 +127,10 @@ function PhotoMagnifier({ media, onClose }) {
     // 2) Marcas de agua sobre toda la foto
     drawWatermarks(ctx, W, H);
 
-    // 3) Lupa 2x (sólo cuando el cursor está dentro del canvas)
+    // 3) Lupa 2x real (sólo cuando el cursor está dentro del canvas)
     const inBounds = mx >= 0 && my >= 0 && mx <= W && my <= H;
     if (inBounds) {
-      const r      = Math.min(LUPE_RADIUS, Math.round(Math.min(W, H) * 0.28));
-      const scaleX = img.naturalWidth  / W;
-      const scaleY = img.naturalHeight / H;
-
-      const srcW = (r * 2 * scaleX) / ZOOM_FACTOR;
-      const srcH = (r * 2 * scaleY) / ZOOM_FACTOR;
-      const srcX = mx * scaleX - srcW / 2;
-      const srcY = my * scaleY - srcH / 2;
+      const r = Math.min(LUPE_RADIUS, Math.round(Math.min(W, H) * 0.28));
 
       ctx.save();
       ctx.beginPath();
@@ -138,10 +141,12 @@ function PhotoMagnifier({ media, onClose }) {
       ctx.fillStyle = '#0a0a0a';
       ctx.fillRect(mx - r, my - r, r * 2, r * 2);
 
-      // Imagen ampliada 2x dentro del círculo
-      ctx.drawImage(img, srcX, srcY, srcW, srcH, mx - r, my - r, r * 2, r * 2);
+      // Transformación afín exacta: amplía 2x el punto (mx, my) bajo el cursor
+      ctx.translate(mx, my);
+      ctx.scale(ZOOM_FACTOR, ZOOM_FACTOR);
+      ctx.translate(-mx, -my);
 
-      // Marcas de agua también dentro del zoom
+      ctx.drawImage(img, 0, 0, W, H);
       drawWatermarks(ctx, W, H);
 
       ctx.restore();
@@ -362,23 +367,32 @@ function VideoViewer({ media, onClose }) {
           onContextMenu={blockMenu}
         />
 
-        {/* Marca de agua video — patrón + central */}
+        {/* Marca de agua video — patrón espaciado + central */}
         <div className="absolute inset-0 pointer-events-none select-none overflow-hidden">
-          <div className="absolute inset-0 grid grid-cols-3 grid-rows-4 gap-0">
-            {Array.from({ length: 12 }).map((_, i) => (
+          <div className="absolute inset-0 grid grid-cols-2 grid-rows-3 gap-10 p-6">
+            {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="flex items-center justify-center">
-                <span className="text-white/14 font-black text-[10px] tracking-widest rotate-[-30deg] whitespace-nowrap">
+                <span
+                  className="text-white/14 font-black text-[10px] rotate-[-28deg] whitespace-nowrap"
+                  style={{ letterSpacing: '0.26em', wordSpacing: '0.45em' }}
+                >
                   CIANCIA PRODUCCIONES
                 </span>
               </div>
             ))}
           </div>
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="rotate-[-30deg] text-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.6)]">
-              <p className="text-white/28 font-black text-xl tracking-widest whitespace-nowrap">
+            <div className="rotate-[-28deg] text-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.6)]">
+              <p
+                className="text-white/28 font-black text-xl whitespace-nowrap"
+                style={{ letterSpacing: '0.26em', wordSpacing: '0.45em' }}
+              >
                 CIANCIA PRODUCCIONES
               </p>
-              <p className="text-white/16 font-black text-sm tracking-widest whitespace-nowrap mt-1">
+              <p
+                className="text-white/16 font-black text-xs whitespace-nowrap mt-3"
+                style={{ letterSpacing: '0.28em', wordSpacing: '0.45em' }}
+              >
                 CIANCIA PRODUCCIONES
               </p>
             </div>
