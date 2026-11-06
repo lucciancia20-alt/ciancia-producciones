@@ -105,7 +105,7 @@ const PROMPT_DORSALES = "Analiza esta foto deportiva. Extrae todos los números 
 /**
  * Realiza la petición POST a la API de Google Generative Language.
  */
-async function callGeminiVision(base64Data, mimeType, apiKey, modelName = 'gemini-2.0-flash') {
+async function callGeminiVision(base64Data, mimeType, apiKey, modelName = 'gemini-1.5-flash') {
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
   return fetch(endpoint, {
@@ -148,15 +148,15 @@ export async function detectDorsalsFromFile(imageFile) {
     const base64Data = await fileToBase64(imageFile);
     const mimeType = imageFile.type || 'image/jpeg';
 
-    // 1. Intento primario con Gemini 2.0 Flash (modelo vigente v1beta)
-    let response = await callGeminiVision(base64Data, mimeType, apiKey, 'gemini-2.0-flash');
+    // 1. Intento primario con Gemini 1.5 Flash (modelo universal y estable en API v1beta)
+    let response = await callGeminiVision(base64Data, mimeType, apiKey, 'gemini-1.5-flash');
 
-    // 2. Si 2.0-flash devuelve 404, fallback a gemini-2.5-flash o gemini-2.0-flash-exp
+    // 2. Fallbacks estables en caso de nombres de versión alternativos en la cuenta del usuario
     if (response.status === 404) {
-      response = await callGeminiVision(base64Data, mimeType, apiKey, 'gemini-2.5-flash');
+      response = await callGeminiVision(base64Data, mimeType, apiKey, 'gemini-1.5-flash-latest');
     }
     if (response.status === 404) {
-      response = await callGeminiVision(base64Data, mimeType, apiKey, 'gemini-2.0-flash-exp');
+      response = await callGeminiVision(base64Data, mimeType, apiKey, 'gemini-1.5-pro');
     }
 
     if (!response.ok) {
@@ -168,8 +168,13 @@ export async function detectDorsalsFromFile(imageFile) {
     const json = await response.json();
     const rawText = json?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '[]';
 
-    // Limpieza en caso de envoltorios markdown ```json ... ```
-    const cleanedText = rawText.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
+    // Limpieza robusta en caso de envoltorios markdown ```json ... ``` o ``` ... ```
+    const cleanedText = String(rawText || '')
+      .replace(/^```json\s*/i, '')
+      .replace(/^```\s*/i, '')
+      .replace(/```$/i, '')
+      .trim();
+
     let parsed;
     try {
       parsed = JSON.parse(cleanedText);
