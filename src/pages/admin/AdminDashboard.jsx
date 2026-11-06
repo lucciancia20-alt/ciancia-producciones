@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { collection, getDocs, query, orderBy, updateDoc, doc } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, updateDoc, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { useAuth } from '../../context/AuthContext';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   BarChart3, ShoppingBag, Clock, CheckCircle2, TrendingUp, LogOut,
-  Camera, Package, ChevronRight, Loader2, Eye, ExternalLink, Settings, Tag
+  Camera, Package, ChevronRight, Loader2, Eye, ExternalLink, Settings, Tag,
+  Trash2, ArrowLeft
 } from 'lucide-react';
 
 function formatPrice(n) {
@@ -21,6 +22,7 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [approvingId, setApprovingId] = useState(null);
+  const [deletingOrderId, setDeletingOrderId] = useState(null);
 
   useEffect(() => {
     async function load() {
@@ -64,6 +66,25 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleDeleteOrder = async (orderId) => {
+    if (!window.confirm('¿Seguro que deseas eliminar esta orden? Se borrará de forma permanente de Firestore.')) {
+      return;
+    }
+    setDeletingOrderId(orderId);
+    try {
+      await deleteDoc(doc(db, 'orders', orderId));
+      setOrders(prev => prev.filter(o => o.id !== orderId));
+      if (selectedOrder?.id === orderId) {
+        setSelectedOrder(null);
+      }
+    } catch (e) {
+      console.error('[handleDeleteOrder] Error:', e);
+      alert('Error al eliminar la orden: ' + (e.message || 'Error inesperado'));
+    } finally {
+      setDeletingOrderId(null);
+    }
+  };
+
   // Metrics
   const totalRevenue = orders.filter(o => o.status === 'approved').reduce((s, o) => s + (o.total || 0), 0);
   const pendingOrders = orders.filter(o => o.status === 'pending' || o.status === 'pending_mp');
@@ -90,12 +111,17 @@ export default function AdminDashboard() {
               <p className="text-neon-green text-xs">Ciancia Producciones</p>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            <span className="text-gray-400 text-sm hidden sm:block">{user?.email}</span>
-            <Link to="/" className="text-gray-400 hover:text-neon-green text-sm transition-colors">
-              <ExternalLink className="w-4 h-4" />
+          <div className="flex items-center gap-3 sm:gap-4">
+            <Link
+              to="/"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-dark-700 hover:bg-dark-600 border border-dark-500 hover:border-neon-green/40 text-gray-200 hover:text-neon-green text-xs font-semibold transition-all"
+              title="Volver a la tienda principal"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Volver a la Tienda</span>
             </Link>
-            <button onClick={handleLogout} className="flex items-center gap-2 text-gray-400 hover:text-red-400 transition-colors text-sm">
+            <span className="text-gray-400 text-sm hidden sm:block">{user?.email}</span>
+            <button onClick={handleLogout} className="flex items-center gap-1.5 text-gray-400 hover:text-red-400 transition-colors text-sm px-2 py-1">
               <LogOut className="w-4 h-4" />
               Salir
             </button>
@@ -185,6 +211,19 @@ export default function AdminDashboard() {
                         )}
                         Aprobar
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteOrder(order.id)}
+                        disabled={deletingOrderId === order.id}
+                        className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 border border-dark-500 hover:border-red-500/30 rounded-lg transition-colors inline-flex items-center justify-center disabled:opacity-40"
+                        title="Eliminar orden de prueba"
+                      >
+                        {deletingOrderId === order.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-red-400" />
+                        ) : (
+                          <Trash2 className="w-4 h-4" />
+                        )}
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -196,10 +235,15 @@ export default function AdminDashboard() {
         {/* Recent approved */}
         {approvedOrders.length > 0 && (
           <div>
-            <h2 className="text-xl font-black text-white mb-4 flex items-center gap-2">
-              <CheckCircle2 className="w-5 h-5 text-green-400" />
-              ÓRDENES APROBADAS
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-black text-white flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-green-400" />
+                ÓRDENES APROBADAS
+              </h2>
+              <span className="text-gray-400 text-xs">
+                {approvedOrders.length} orden{approvedOrders.length !== 1 ? 'es' : ''}
+              </span>
+            </div>
             <div className="card-dark overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
@@ -208,15 +252,31 @@ export default function AdminDashboard() {
                     <th className="p-4 text-left font-medium hidden sm:table-cell">Email</th>
                     <th className="p-4 text-left font-medium hidden md:table-cell">Ítems</th>
                     <th className="p-4 text-right font-medium">Total</th>
+                    <th className="p-4 text-center font-medium">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {approvedOrders.slice(0, 10).map(order => (
+                  {approvedOrders.slice(0, 15).map(order => (
                     <tr key={order.id} className="border-b border-dark-700 hover:bg-dark-600/50 transition-colors">
                       <td className="p-4 text-white font-medium">{order.cliente?.nombre || '-'}</td>
                       <td className="p-4 text-gray-400 hidden sm:table-cell">{order.cliente?.email}</td>
                       <td className="p-4 text-gray-400 hidden md:table-cell">{order.items?.length}</td>
                       <td className="p-4 text-neon-green font-bold text-right">{formatPrice(order.total)}</td>
+                      <td className="p-4 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteOrder(order.id)}
+                          disabled={deletingOrderId === order.id}
+                          className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors inline-flex items-center justify-center disabled:opacity-40"
+                          title="Eliminar orden"
+                        >
+                          {deletingOrderId === order.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin text-red-400" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
