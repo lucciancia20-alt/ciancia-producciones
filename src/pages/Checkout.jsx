@@ -246,6 +246,7 @@ export default function Checkout() {
                   <label className="text-sm text-gray-400 mb-1 block">Nombre completo *</label>
                   <input
                     name="nombre" value={form.nombre} onChange={handleChange}
+                    autoComplete="off" autoCorrect="off" spellCheck="false" data-lpignore="true"
                     placeholder="Juan Pérez" className="input-dark" required
                   />
                 </div>
@@ -253,6 +254,7 @@ export default function Checkout() {
                   <label className="text-sm text-gray-400 mb-1 block">Email *</label>
                   <input
                     name="email" value={form.email} onChange={handleChange}
+                    autoComplete="off" autoCorrect="off" spellCheck="false" data-lpignore="true"
                     type="email" placeholder="juan@ejemplo.com" className="input-dark" required
                   />
                 </div>
@@ -260,6 +262,7 @@ export default function Checkout() {
                   <label className="text-sm text-gray-400 mb-1 block">Teléfono</label>
                   <input
                     name="telefono" value={form.telefono} onChange={handleChange}
+                    autoComplete="off" autoCorrect="off" spellCheck="false" data-lpignore="true"
                     placeholder="+54 9 11 1234-5678" className="input-dark"
                   />
                 </div>
@@ -433,6 +436,11 @@ export default function Checkout() {
                       <div className="flex gap-1.5">
                         <input
                           type="text"
+                          autoComplete="off"
+                          autoCorrect="off"
+                          spellCheck="false"
+                          data-lpignore="true"
+                          data-form-type="other"
                           value={couponInput}
                           onChange={e => setCouponInput(e.target.value)}
                           onKeyDown={e => {

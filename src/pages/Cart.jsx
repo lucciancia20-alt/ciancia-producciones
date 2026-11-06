@@ -66,6 +66,11 @@ export default function Cart() {
                 <div className="flex gap-2">
                   <input
                     type="text"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    spellCheck="false"
+                    data-lpignore="true"
+                    data-form-type="other"
                     placeholder="Código..."
                     value={couponInput}
                     onChange={e => setCouponInput(e.target.value)}

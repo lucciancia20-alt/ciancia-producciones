@@ -275,8 +275,8 @@ export default function Home() {
       {/* Hero */}
       <section className="relative pt-32 pb-20 px-4 overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-dark-900 via-dark-800 to-dark-900" />
-        <div className="absolute top-20 left-1/4 w-96 h-96 bg-neon-green/5 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-0 right-1/4 w-64 h-64 bg-neon-green/3 rounded-full blur-3xl pointer-events-none" />
+        <div className="hidden md:block absolute top-20 left-1/4 w-96 h-96 bg-neon-green/5 rounded-full blur-3xl pointer-events-none" />
+        <div className="hidden md:block absolute bottom-0 right-1/4 w-64 h-64 bg-neon-green/3 rounded-full blur-3xl pointer-events-none" />
 
         <div className="relative max-w-4xl mx-auto text-center">
           <div className="inline-flex items-center gap-2 bg-neon-green/10 border border-neon-green/30 rounded-full px-4 py-2 mb-6">
@@ -545,6 +545,11 @@ export default function Home() {
                       onChange={e => setOrderQuery(e.target.value)}
                       placeholder="tu@email.com o código de pedido..."
                       className="input-dark pl-10"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck="false"
+                      data-lpignore="true"
+                      data-form-type="other"
                       required
                     />
                   </div>

@@ -77,6 +77,11 @@ export default function CartDrawer({ onClose }) {
             <div className="flex gap-2">
               <input
                 type="text"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck="false"
+                data-lpignore="true"
+                data-form-type="other"
                 placeholder="Código de cupón"
                 value={couponInput}
                 onChange={e => setCouponInput(e.target.value)}

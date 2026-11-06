@@ -133,10 +133,16 @@ export default function AlbumDetail() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
             <input
               type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck="false"
+              data-lpignore="true"
+              data-form-type="other"
               placeholder="Buscá por número de dorsal / pechera..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="input-dark pl-10 text-base"
+              className="input-dark pl-10 text-base font-mono"
             />
             {search && (
               <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white">

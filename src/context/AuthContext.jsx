@@ -10,8 +10,6 @@ import { auth } from '../firebase/config';
 
 const AuthContext = createContext(null);
 
-const googleProvider = new GoogleAuthProvider();
-
 // Clave usada en localStorage para persistir el bypass de dev
 const DEV_KEY = 'ciancia_dev_bypass';
 
@@ -30,7 +28,7 @@ const DEV_USER = {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
     try {
-      return localStorage.getItem(DEV_KEY) ? DEV_USER : null;
+      return typeof window !== 'undefined' && localStorage.getItem(DEV_KEY) ? DEV_USER : null;
     } catch {
       return null;
     }
@@ -39,7 +37,7 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     try {
-      if (localStorage.getItem(DEV_KEY)) {
+      if (typeof window !== 'undefined' && localStorage.getItem(DEV_KEY)) {
         setLoading(false);
         return;
       }
@@ -47,11 +45,29 @@ export function AuthProvider({ children }) {
       // ignore storage errors
     }
 
-    const unsub = onAuthStateChanged(auth, (u) => {
-      setUser(u);
+    // No inicializar resolvers ni listeners de Auth en la portada pública si no es necesario
+    const isPublicPath = typeof window !== 'undefined' && (
+      window.location.pathname === '/' ||
+      window.location.pathname.startsWith('/album') ||
+      window.location.pathname.startsWith('/cart') ||
+      window.location.pathname.startsWith('/checkout')
+    );
+
+    if (isPublicPath) {
       setLoading(false);
-    });
-    return unsub;
+      return;
+    }
+
+    try {
+      const unsub = onAuthStateChanged(auth, (u) => {
+        setUser(u);
+        setLoading(false);
+      });
+      return unsub;
+    } catch (err) {
+      console.warn('[AuthContext] Auth error:', err);
+      setLoading(false);
+    }
   }, []);
 
   // Intenta autenticar con Firebase Auth primero; si el proveedor o el usuario
@@ -81,8 +97,10 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const loginWithGoogle = () =>
-    signInWithPopup(auth, googleProvider);
+  const loginWithGoogle = () => {
+    const provider = new GoogleAuthProvider();
+    return signInWithPopup(auth, provider);
+  };
 
   // Bypass 100% local — no toca Firebase
   const loginDev = () => {
