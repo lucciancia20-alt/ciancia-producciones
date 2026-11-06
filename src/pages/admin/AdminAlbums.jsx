@@ -432,11 +432,19 @@ export default function AdminAlbums() {
 
     // 3) Actualizar contador del álbum en Firestore y reflejarlo de inmediato en el estado
     if (ok > 0) {
-      await updateDoc(doc(db, 'albums', uploadAlbumId), {
+      const albumUpdates = {
         totalMedia: (album?.totalMedia || 0) + ok,
-      });
-      // Actualizar contador del álbum en el estado local de forma fluida
-      setAlbums(prev => prev.map(a => a.id === uploadAlbumId ? { ...a, totalMedia: (a.totalMedia || 0) + ok } : a));
+      };
+
+      // Si el álbum aún no tenía foto de portada asignada, tomamos la primera foto subida
+      const firstDone = uploadFilesRef.current.find(f => f.status === 'done')?.result?.thumb;
+      if (!album?.coverUrl && firstDone) {
+        albumUpdates.coverUrl = firstDone;
+      }
+
+      await updateDoc(doc(db, 'albums', uploadAlbumId), albumUpdates);
+      // Actualizar contador y portada del álbum en el estado local de forma fluida
+      setAlbums(prev => prev.map(a => a.id === uploadAlbumId ? { ...a, ...albumUpdates } : a));
     }
 
     setUploadSummary({ ok, errors });

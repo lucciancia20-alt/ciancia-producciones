@@ -106,11 +106,17 @@ export default function AlbumDetail() {
     );
   }
 
+  const heroCover = album.coverUrl || album.coverImage || (media.length > 0 ? (media[0].thumb || media[0].url) : null);
+
   return (
     <div className="min-h-screen pt-20">
       {/* Album hero */}
-      <div className="relative h-72 overflow-hidden">
-        <img src={album.coverUrl} alt={album.title} className="w-full h-full object-cover" />
+      <div className="relative h-72 overflow-hidden bg-dark-800">
+        {heroCover ? (
+          <img src={heroCover} alt="" role="presentation" className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-dark-800 via-dark-900 to-black" />
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-dark-900 via-dark-900/60 to-transparent" />
         <div className="absolute bottom-0 left-0 right-0 p-6 max-w-7xl mx-auto">
           <Link to="/" className="inline-flex items-center gap-2 text-gray-400 hover:text-neon-green transition-colors mb-3 text-sm">
