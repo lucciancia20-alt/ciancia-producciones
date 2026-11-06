@@ -112,7 +112,7 @@ const PROMPT_DORSALES = 'Extrae todos los números de dorsales/pecheras visibles
  * Realiza la petición POST a la API de Google Generative Language usando estrictamente gemini-1.5-flash.
  */
 async function callGeminiVision(base64Data, mimeType, apiKey) {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const endpoint = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
 
   const payload = {
     contents: [
