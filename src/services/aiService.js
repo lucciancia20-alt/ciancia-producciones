@@ -126,9 +126,11 @@ const GEMINI_TIMEOUT_MS = 8500; // timeout ágil por intento para conmutar rápi
 const COOLDOWN_MS       = 60000; // 60s de enfriamiento para un modelo que dio 503/429/timeout
 
 const aiClients = new Map();
-const deadModels = new Set();        // modelos con 404 permanente
-const deadKeys   = new Set();        // keys con 400/401/403
-const modelCooldownUntil = new Map(); // model -> timestamp hasta cuando evitarlo por 503/429
+const deadModels = new Set();         // modelos con 404 permanente
+const deadKeys   = new Set();         // keys con 400/401/403
+const modelCooldownUntil = new Map(); // model -> timestamp hasta cuando evitarlo por 503
+const keyCooldownUntil   = new Map(); // apiKey -> timestamp hasta cuando evitarla por 429
+let keyRoundRobinCounter = 0;         // balanceador activo 50/50 entre claves disponibles
 
 function getAiClient(apiKey) {
   if (!aiClients.has(apiKey)) {
@@ -243,19 +245,33 @@ export async function detectDorsalsFromFile(imageFile) {
   const candidates = getModelPool().filter(m => !deadModels.has(m));
   if (candidates.length === 0) return [];
 
-  // Priorizar modelos que NO estén en enfriamiento por 503/429 reciente
+  // Priorizar modelos que NO estén en enfriamiento por 503 reciente
   const activeModels = [
     ...candidates.filter(m => (modelCooldownUntil.get(m) || 0) <= now),
     ...candidates.filter(m => (modelCooldownUntil.get(m) || 0) > now),
   ];
 
-  // Probamos hasta 3 combinaciones rápidas (modelo / key) para no superar el límite de tiempo
-  const maxAttempts = Math.min(3, activeModels.length);
-  let lastError = null;
+  // Priorizar claves que NO estén en enfriamiento por 429 reciente, rotando en Round-Robin 50/50
+  const startIdx = (keyRoundRobinCounter++) % allKeys.length;
+  const rotatedKeys = [
+    ...allKeys.slice(startIdx),
+    ...allKeys.slice(0, startIdx),
+  ];
+  const activeKeys = [
+    ...rotatedKeys.filter(k => (keyCooldownUntil.get(k) || 0) <= now),
+    ...rotatedKeys.filter(k => (keyCooldownUntil.get(k) || 0) > now),
+  ];
 
-  for (let i = 0; i < maxAttempts; i++) {
-    const model = activeModels[i];
-    const apiKey = allKeys[i % allKeys.length];
+  // Probamos hasta 3 combinaciones rápidas (modelo / key) para no superar el límite de tiempo
+  const maxAttempts = Math.min(3, Math.max(activeModels.length, activeKeys.length));
+  let lastError = null;
+  let modelIdx = 0;
+  let keyIdx   = 0;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const model  = activeModels[modelIdx % activeModels.length];
+    const apiKey = activeKeys[keyIdx % activeKeys.length];
+    const keyTag = allKeys.length > 1 ? ` [Key #${allKeys.indexOf(apiKey) + 1}]` : '';
     const ai = getAiClient(apiKey);
 
     try {
@@ -286,10 +302,11 @@ export async function detectDorsalsFromFile(imageFile) {
         GEMINI_TIMEOUT_MS,
       );
 
-      // Éxito: limpiamos cualquier cooldown previo de este modelo
+      // Éxito: limpiamos cualquier cooldown previo de este modelo y clave
       modelCooldownUntil.delete(model);
+      keyCooldownUntil.delete(apiKey);
       const dorsals = parseDorsalsResponse(response?.text ?? '');
-      console.log(`[aiService] Gemini (${model}) detectó ${dorsals.length} dorsal(es):`, dorsals);
+      console.log(`[aiService] Gemini (${model})${keyTag} detectó ${dorsals.length} dorsal(es):`, dorsals);
       return dorsals;
     } catch (err) {
       lastError = { err, model };
@@ -297,21 +314,33 @@ export async function detectDorsalsFromFile(imageFile) {
 
       if (status === 404) {
         deadModels.add(model);
+        modelIdx++;
         console.warn(`[aiService] Modelo "${model}" no disponible (404). Saltando a alternativo...`);
         continue;
       }
 
-      if (status === 401 || status === 403) {
+      if (status === 401 || status === 403 || status === 400) {
         deadKeys.add(apiKey);
-        console.warn('[aiService] API key rechazada, probando clave alternativa si existe...');
+        keyIdx++;
+        console.warn(`[aiService] API key rechazada (${status})${keyTag}, probando clave alternativa...`);
         continue;
       }
 
-      // 503 (Saturado), 429 (Rate limit), 500 o Timeout -> enfriar este modelo 60s y pasar al alternativo
+      if (status === 429 && activeKeys.length > 1) {
+        // Cuota por minuto alcanzada en esta key: enfriarla 60s y probar primero la otra key
+        keyCooldownUntil.set(apiKey, Date.now() + COOLDOWN_MS);
+        keyIdx++;
+        console.warn(`[aiService] Cuota alcanzada (429)${keyTag}. Rotando a la API Key de respaldo...`);
+        continue;
+      }
+
+      // 503 (Saturado), 500 o Timeout -> enfriar este modelo 60s y pasar al modelo alternativo (y rotar key)
       modelCooldownUntil.set(model, Date.now() + COOLDOWN_MS);
-      const nextModel = activeModels[i + 1];
-      if (nextModel && i + 1 < maxAttempts) {
-        console.warn(`[aiService] "${model}" saturado o lento (${status || 'timeout'}). Cambiando automáticamente a "${nextModel}"...`);
+      modelIdx++;
+      keyIdx++;
+      const nextModel = activeModels[modelIdx % activeModels.length];
+      if (attempt + 1 < maxAttempts) {
+        console.warn(`[aiService] "${model}"${keyTag} saturado o lento (${status || 'timeout'}). Cambiando automáticamente a "${nextModel}"...`);
       }
     }
   }
@@ -513,11 +542,12 @@ export async function matchFaceAgainstAlbum(selfieDescriptor, mediaItems, thresh
   return matchingIds;
 }
 
-// ─── Análisis combinado (cola serializada) ───────────────────────────────────
-let analysisChain = Promise.resolve();
+// ─── Análisis combinado con soporte de cancelación y doble carril ────────────
+const analysisLanes = [Promise.resolve(), Promise.resolve()];
+let laneCursor = 0;
 
 /**
- * analyzeImageFile(file) → Promise<{ dorsals: string[], faceDescriptors: {vector:number[]}[] }>
+ * analyzeImageFile(file, options) → Promise<{ dorsals: string[], faceDescriptors: {vector:number[]}[] }>
  */
 const FACE_TIMEOUT_MS = 45000;
 
@@ -533,14 +563,23 @@ function settleWithin(promise, ms, fallback, label) {
   return Promise.race([Promise.resolve(promise).catch(() => fallback), timeout]).finally(() => clearTimeout(timer));
 }
 
-export function analyzeImageFile(file) {
+export function analyzeImageFile(file, { shouldCancel } = {}) {
   const run = async () => {
+    if (typeof shouldCancel === 'function' && shouldCancel()) {
+      return { dorsals: [], faceDescriptors: [], cancelled: true };
+    }
     // Tope global para toda la cadena de failover de dorsales (máx 25s entre todos los intentos)
     const dorsals = await settleWithin(detectDorsalsFromFile(file), GEMINI_TIMEOUT_MS * 3 + 2000, [], 'Detección de dorsales');
+    if (typeof shouldCancel === 'function' && shouldCancel()) {
+      return { dorsals, faceDescriptors: [], cancelled: true };
+    }
     const faceDescriptors = await settleWithin(extractFaceDescriptors(file, { forAdmin: true }), FACE_TIMEOUT_MS, [], 'Detección de rostros');
     return { dorsals, faceDescriptors };
   };
-  const result = analysisChain.then(run, run);
-  analysisChain = result.catch(() => {});
+  // Si hay 2 API keys configuradas, usamos 2 carriles paralelos para duplicar velocidad
+  const laneCount = getGeminiApiKeys().length > 1 ? 2 : 1;
+  const idx = (laneCursor++) % laneCount;
+  const result = analysisLanes[idx].then(run, run);
+  analysisLanes[idx] = result.catch(() => {});
   return result;
 }

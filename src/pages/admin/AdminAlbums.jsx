@@ -8,7 +8,7 @@ import { Link } from 'react-router-dom';
 import {
   ArrowLeft, Plus, Upload, X, Check, Loader2, Camera, Video,
   Eye, ChevronDown, ChevronUp, AlertCircle, CheckCircle2,
-  Bot, ScanFace, Save, Trash2, Tag,
+  Bot, ScanFace, Save, Trash2, Tag, RefreshCw,
 } from 'lucide-react';
 import { uploadToCloudinary } from '../../services/cloudinary';
 
@@ -286,11 +286,36 @@ export default function AdminAlbums() {
   };
 
   // ─── Gestión de la cola de archivos ─────────────────────────────────────────
+  const runAIOnItem = async (it) => {
+    try {
+      const { analyzeImageFile } = await import('../../services/aiService');
+      const { dorsals, faceDescriptors, cancelled } = await analyzeImageFile(it.file, {
+        shouldCancel: () => !uploadFilesRef.current.some(f => f.id === it.id),
+      });
+      if (cancelled) return;
+      setUploadFiles(prev => prev.map(f => {
+        if (f.id !== it.id) return f;
+        return {
+          ...f,
+          aiStatus: 'done',
+          aiDorsals: dorsals,
+          faceDescriptors: faceDescriptors?.length ? faceDescriptors : f.faceDescriptors,
+          // Sugerencia editable: solo si el admin no escribió nada a mano
+          dorsals: !f.dorsalsTouched && !f.dorsals.trim() ? dorsals.join(', ') : f.dorsals,
+        };
+      }));
+    } catch (err) {
+      console.warn('[AdminAlbums] IA falló', err);
+      patchFile(it.id, { aiStatus: 'error' });
+    }
+  };
+
   const addFiles = (rawFiles) => {
     const accepted = rawFiles.filter(f => f.type.startsWith('image/') || f.type.startsWith('video/'));
     const items = accepted.map(f => ({
       id:              Math.random().toString(36).slice(2),
       file:            f,
+      previewUrl:      f.type.startsWith('image/') ? URL.createObjectURL(f) : null,
       dorsals:         '',
       dorsalsTouched:  false,       // true si el admin editó el input a mano
       status:          'idle',
@@ -305,26 +330,20 @@ export default function AdminAlbums() {
     setUploadFiles(prev => [...prev, ...items]);
 
     // Análisis IA automático en segundo plano (import 100% dinámico)
-    items.filter(it => it.aiStatus === 'analyzing').forEach(async (it) => {
-      try {
-        const { analyzeImageFile } = await import('../../services/aiService');
-        const { dorsals, faceDescriptors } = await analyzeImageFile(it.file);
-        setUploadFiles(prev => prev.map(f => {
-          if (f.id !== it.id) return f;
-          return {
-            ...f,
-            aiStatus: 'done',
-            aiDorsals: dorsals,
-            faceDescriptors,
-            // Sugerencia editable: solo si el admin no escribió nada a mano
-            dorsals: !f.dorsalsTouched && !f.dorsals.trim() ? dorsals.join(', ') : f.dorsals,
-          };
-        }));
-      } catch (err) {
-        console.warn('[AdminAlbums] IA falló', err);
-        patchFile(it.id, { aiStatus: 'error' });
-      }
-    });
+    items.filter(it => it.aiStatus === 'analyzing').forEach(runAIOnItem);
+  };
+
+  const retryAIForItem = (item) => {
+    if (!item || item.aiStatus === 'analyzing') return;
+    patchFile(item.id, { aiStatus: 'analyzing' });
+    runAIOnItem(item);
+  };
+
+  const retryAllMissingDorsals = () => {
+    const targets = uploadFiles.filter(
+      f => f.file.type.startsWith('image/') && f.aiStatus !== 'analyzing' && f.aiDorsals.length === 0 && !f.dorsals.trim()
+    );
+    targets.forEach(retryAIForItem);
   };
 
   const handleDrop = (e) => {
@@ -343,7 +362,11 @@ export default function AdminAlbums() {
     setUploadFiles(prev => prev.map(f => f.id === id ? { ...f, dorsals: val, dorsalsTouched: true } : f));
 
   const removeFile = (id) =>
-    setUploadFiles(prev => prev.filter(f => f.id !== id));
+    setUploadFiles(prev => {
+      const target = prev.find(f => f.id === id);
+      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+      return prev.filter(f => f.id !== id);
+    });
 
   const patchFile = (id, patch) =>
     setUploadFiles(prev => prev.map(f => f.id === id ? { ...f, ...patch } : f));
@@ -464,7 +487,11 @@ export default function AdminAlbums() {
     }
   };
 
-  const clearAll   = () => { setUploadFiles([]); setUploadSummary(null); };
+  const clearAll   = () => {
+    uploadFiles.forEach(f => { if (f.previewUrl) URL.revokeObjectURL(f.previewUrl); });
+    setUploadFiles([]);
+    setUploadSummary(null);
+  };
   const retryErrors = () =>
     setUploadFiles(prev => prev.map(f => f.status === 'error' ? { ...f, status: 'idle', progress: 0, error: null } : f));
 
@@ -472,6 +499,10 @@ export default function AdminAlbums() {
   const idleCount   = uploadFiles.filter(f => f.status === 'idle').length;
   const doneCount   = uploadFiles.filter(f => f.status === 'done').length;
   const totalCount  = uploadFiles.length;
+  const aiAnalyzingCount = uploadFiles.filter(f => f.aiStatus === 'analyzing').length;
+  const missingDorsalsCount = uploadFiles.filter(
+    f => f.file.type.startsWith('image/') && f.aiStatus !== 'analyzing' && f.aiDorsals.length === 0 && !f.dorsals.trim()
+  ).length;
 
   // ─── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -609,15 +640,23 @@ export default function AdminAlbums() {
                                                 'bg-dark-700     border-dark-500'
                     }`}
                   >
-                    {/* Fila 1: Ícono, Nombre del archivo, tamaño y botón eliminar */}
+                    {/* Fila 1: Miniatura/Ícono, Nombre del archivo, tamaño y botón eliminar */}
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <div className="flex-shrink-0 p-2 bg-dark-600 rounded-xl">
-                          {isVideo
-                            ? <Video  className="w-5 h-5 text-neon-green" />
-                            : <Camera className="w-5 h-5 text-blue-400"   />
-                          }
-                        </div>
+                        {item.previewUrl ? (
+                          <img
+                            src={item.previewUrl}
+                            alt=""
+                            className="w-11 h-11 rounded-xl object-cover border border-dark-500 flex-shrink-0 bg-dark-800"
+                          />
+                        ) : (
+                          <div className="flex-shrink-0 p-2.5 bg-dark-600 rounded-xl">
+                            {isVideo
+                              ? <Video  className="w-5 h-5 text-neon-green" />
+                              : <Camera className="w-5 h-5 text-blue-400"   />
+                            }
+                          </div>
+                        )}
                         <div className="min-w-0 flex-1">
                           <p className="text-white text-sm font-semibold truncate leading-tight">{item.file.name}</p>
                           <p className="text-gray-400 text-xs mt-0.5">{sizeMB} MB · {isVideo ? 'Video' : 'Imagen'}</p>
@@ -665,10 +704,20 @@ export default function AdminAlbums() {
                             <ScanFace className="w-4 h-4 flex-shrink-0" />
                             <span className="font-semibold">{item.faceDescriptors.length} rostro{item.faceDescriptors.length !== 1 ? 's' : ''}</span>
                           </div>
-                          {item.aiDorsals.length > 0 && (
+                          {item.aiDorsals.length > 0 ? (
                             <span className="text-[11px] text-gray-400 font-mono hidden xs:inline">
                               [{item.aiDorsals.join(', ')}]
                             </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => retryAIForItem(item)}
+                              className="inline-flex items-center gap-1 text-[11px] text-yellow-300 hover:text-white bg-yellow-500/15 hover:bg-yellow-500/25 border border-yellow-500/30 px-2 py-0.5 rounded-lg transition-colors"
+                              title="Volver a analizar dorsales con IA"
+                            >
+                              <RefreshCw className="w-3 h-3" />
+                              Reintentar IA
+                            </button>
                           )}
                         </div>
                       )}
@@ -754,6 +803,17 @@ export default function AdminAlbums() {
                 {hasErrors && !uploading && (
                   <button type="button" onClick={retryErrors} className="btn-outline-neon text-sm py-2 flex items-center gap-2">
                     <Loader2 className="w-4 h-4" /> Reintentar errores
+                  </button>
+                )}
+
+                {missingDorsalsCount > 0 && !uploading && aiAnalyzingCount === 0 && (
+                  <button
+                    type="button"
+                    onClick={retryAllMissingDorsals}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-yellow-500/15 hover:bg-yellow-500/25 border border-yellow-500/40 text-yellow-300 text-xs font-bold transition-colors"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Reintentar IA en {missingDorsalsCount} sin dorsal
                   </button>
                 )}
 

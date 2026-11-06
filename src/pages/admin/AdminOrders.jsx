@@ -4,11 +4,26 @@ import { db } from '../../firebase/config';
 import { Link } from 'react-router-dom';
 import {
   ArrowLeft, CheckCircle2, Clock, Eye, ExternalLink, Loader2, Package, XCircle,
-  Trash2, Camera
+  Trash2, Camera, MessageCircle, Copy, Check
 } from 'lucide-react';
 
 function formatPrice(n) {
   return `$${(n || 0).toLocaleString('es-AR')}`;
+}
+
+function buildWhatsAppOrderUrl(order) {
+  const rawPhone = String(order?.cliente?.telefono || '').replace(/\D/g, '');
+  let phone = rawPhone;
+  if (phone && !phone.startsWith('54') && phone.length >= 8 && phone.length <= 11) {
+    phone = `549${phone.replace(/^0+/, '')}`;
+  }
+  const nombre = order?.cliente?.nombre || 'Hola';
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://ciancia-producciones.onrender.com';
+  const directUrl = `${origin}/?pedido=${order.id}`;
+  const text = `¡Hola ${nombre}! 📸 Tu pedido en *Ciancia Producciones* (${order.items?.length || 1} archivo/s) ya está aprobado.\n\nPodés descargar tus fotos originales en Alta Definición sin marca de agua entrando directo acá:\n${directUrl}`;
+  return phone
+    ? `https://wa.me/${phone}?text=${encodeURIComponent(text)}`
+    : `https://wa.me/?text=${encodeURIComponent(text)}`;
 }
 
 function formatDate(ts) {
@@ -167,14 +182,30 @@ export default function AdminOrders() {
                         <span className="text-gray-500 text-xs capitalize">{order.paymentMethod === 'transfer' ? 'Transferencia' : 'MercadoPago'}</span>
                       </div>
                       <p className="font-bold text-white">{order.cliente?.nombre || 'Sin nombre'}</p>
-                      <p className="text-gray-400 text-sm">{order.cliente?.email}</p>
+                      <p className="text-gray-400 text-sm">
+                        {order.cliente?.email}
+                        {order.cliente?.telefono && <span className="text-gray-500"> · 📱 {order.cliente.telefono}</span>}
+                      </p>
                       <p className="text-xs text-gray-500 mt-1">
-                        {order.items?.length} ítems · {formatDate(order.createdAt)}
+                        {order.items?.length} ítems · {formatDate(order.createdAt)} · <span className="font-mono text-gray-400">#{order.id.slice(0, 8)}</span>
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-3 flex-shrink-0">
+                    <div className="flex items-center gap-2.5 flex-shrink-0 flex-wrap">
                       <span className="text-neon-green font-black text-lg">{formatPrice(order.total)}</span>
+
+                      {order.status === 'approved' && (
+                        <a
+                          href={buildWhatsAppOrderUrl(order)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold bg-green-500/15 hover:bg-green-500/25 text-green-400 border border-green-500/30 transition-colors"
+                          title="Enviar link directo de descarga por WhatsApp"
+                        >
+                          <MessageCircle className="w-4 h-4" />
+                          <span>Enviar WhatsApp</span>
+                        </a>
+                      )}
 
                       {(order.voucherUrl || order.voucherBase64) && (
                         <button

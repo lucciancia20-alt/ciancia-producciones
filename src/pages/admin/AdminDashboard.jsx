@@ -263,19 +263,38 @@ export default function AdminDashboard() {
                       <td className="p-4 text-gray-400 hidden md:table-cell">{order.items?.length}</td>
                       <td className="p-4 text-neon-green font-bold text-right">{formatPrice(order.total)}</td>
                       <td className="p-4 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteOrder(order.id)}
-                          disabled={deletingOrderId === order.id}
-                          className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors inline-flex items-center justify-center disabled:opacity-40"
-                          title="Eliminar orden"
-                        >
-                          {deletingOrderId === order.id ? (
-                            <Loader2 className="w-4 h-4 animate-spin text-red-400" />
-                          ) : (
-                            <Trash2 className="w-4 h-4" />
-                          )}
-                        </button>
+                        <div className="inline-flex items-center gap-2">
+                          <a
+                            href={(() => {
+                              const rawPhone = String(order?.cliente?.telefono || '').replace(/\D/g, '');
+                              const phone = rawPhone && !rawPhone.startsWith('54') && rawPhone.length >= 8 && rawPhone.length <= 11
+                                ? `549${rawPhone.replace(/^0+/, '')}`
+                                : rawPhone;
+                              const origin = typeof window !== 'undefined' ? window.location.origin : 'https://ciancia-producciones.onrender.com';
+                              const text = `¡Hola ${order?.cliente?.nombre || ''}! 📸 Tu pedido en *Ciancia Producciones* ya está aprobado.\n\nDescargá tus fotos originales en HD acá:\n${origin}/?pedido=${order.id}`;
+                              return phone ? `https://wa.me/${phone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
+                            })()}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-2.5 py-1 text-xs font-bold text-green-400 bg-green-500/15 hover:bg-green-500/25 border border-green-500/30 rounded-lg transition-colors"
+                            title="Enviar link de descarga por WhatsApp"
+                          >
+                            📲 WhatsApp
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteOrder(order.id)}
+                            disabled={deletingOrderId === order.id}
+                            className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors inline-flex items-center justify-center disabled:opacity-40"
+                            title="Eliminar orden"
+                          >
+                            {deletingOrderId === order.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin text-red-400" />
+                            ) : (
+                              <Trash2 className="w-4 h-4" />
+                            )}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

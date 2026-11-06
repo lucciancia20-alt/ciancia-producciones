@@ -211,7 +211,8 @@ function PhotoMagnifier({ media, onClose }) {
   const handleTouchMove  = (e) => {
     e.preventDefault();
     const t = e.touches[0];
-    if (t) mousePos.current = getCanvasPos(t.clientX, t.clientY);
+    // En pantallas táctiles desplazamos 55px hacia arriba para que el dedo no tape el centro de la lupa
+    if (t) mousePos.current = getCanvasPos(t.clientX, t.clientY - 55);
   };
   const blockMenu = (e) => e.preventDefault();
 

@@ -221,9 +221,8 @@ export default function Home() {
   };
 
   // ─── Buscar pedidos en Firestore por Email o ID de orden ──────────────────
-  const handleSearchOrders = async (e) => {
-    e.preventDefault();
-    const q = orderQuery.trim();
+  const runOrderLookup = useCallback(async (rawQuery) => {
+    const q = String(rawQuery || '').trim();
     if (!q) return;
 
     setOrderLoading(true);
@@ -266,7 +265,28 @@ export default function Home() {
     } finally {
       setOrderLoading(false);
     }
+  }, []);
+
+  const handleSearchOrders = async (e) => {
+    e.preventDefault();
+    await runOrderLookup(orderQuery);
   };
+
+  // Si el cliente entra desde un link directo de WhatsApp (?pedido=ID), abrimos el modal y buscamos su orden automáticamente
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const pedidoParam = params.get('pedido') || params.get('order');
+      if (pedidoParam && pedidoParam.trim()) {
+        const cleanId = pedidoParam.trim();
+        setOrderQuery(cleanId);
+        setActiveModal('descarga');
+        runOrderLookup(cleanId);
+      }
+    } catch {
+      // noop
+    }
+  }, [runOrderLookup]);
 
   // ─── Descarga limpia del archivo original HD sin marca de agua ─────────────
   const handleDownloadOriginal = async (orderId, item) => {

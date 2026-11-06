@@ -3,9 +3,10 @@ import { useParams, Link } from 'react-router-dom';
 import { collection, getDocs, query, where, doc, getDoc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { useAuth } from '../context/AuthContext';
+import { useCart } from '../context/CartContext';
 import MediaCard from '../components/MediaCard';
 import MagnifierViewer from '../components/MagnifierViewer';
-import { Search, ArrowLeft, Camera, Video, Filter, X, ScanFace, Trash2, Loader2 } from 'lucide-react';
+import { Search, ArrowLeft, Camera, Video, Filter, X, ScanFace, Trash2, Loader2, ShoppingCart, Sparkles, Check } from 'lucide-react';
 
 // Carga 100% diferida del modal de selfie para evitar que se cargue face-api / tensorflow al abrir el álbum
 const SelfieSearchModal = React.lazy(() => import('../components/SelfieSearchModal'));
@@ -13,6 +14,7 @@ const SelfieSearchModal = React.lazy(() => import('../components/SelfieSearchMod
 export default function AlbumDetail() {
   const { albumId } = useParams();
   const { user } = useAuth();
+  const { items: cartItems, addItem, total, packRule, itemCount } = useCart();
   const [album, setAlbum] = useState(null);
   const [media, setMedia] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -209,19 +211,60 @@ export default function AlbumDetail() {
           </div>
         )}
 
-        {/* Dorsal hint */}
-        {search && (
-          <div className="mt-3 text-sm text-gray-400">
-            {filtered.length === 0
-              ? `Sin resultados para dorsal "${search}"`
-              : `${filtered.length} archivo${filtered.length !== 1 ? 's' : ''} con dorsal "${search}"`
-            }
+        {/* Dorsal hint + Botón Pack Completo estilo Fhotobase */}
+        {(search.trim() || (faceMatchIds && faceMatchIds.size > 0)) && (
+          <div className="mt-4">
+            {filtered.length === 0 ? (
+              <div className="text-sm text-gray-400">
+                {search.trim() ? `Sin resultados para dorsal "${search}"` : 'Sin resultados para este filtro'}
+              </div>
+            ) : (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-neon-green/40 bg-gradient-to-r from-neon-green/15 via-dark-800 to-dark-800 px-4 py-3.5 shadow-lg">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-neon-green/20 border border-neon-green/40 flex items-center justify-center flex-shrink-0">
+                    <Sparkles className="w-5 h-5 text-neon-green" />
+                  </div>
+                  <div>
+                    <p className="text-white font-bold text-sm sm:text-base">
+                      ¡Encontramos <span className="text-neon-green font-black">{filtered.length}</span> {filtered.length === 1 ? 'archivo tuyo' : 'archivos tuyos'}!
+                      {filtered.length >= 10 && <span className="ml-2 badge-neon">30% OFF Pack</span>}
+                      {filtered.length >= 5 && filtered.length < 10 && <span className="ml-2 badge-neon">20% OFF Pack</span>}
+                      {filtered.length >= 2 && filtered.length < 5 && <span className="ml-2 badge-neon">10% OFF Pack</span>}
+                    </p>
+                    <p className="text-xs text-gray-300 mt-0.5">
+                      {filtered.length >= 2
+                        ? 'Llevando tu pack completo se aplica el descuento por cantidad automáticamente.'
+                        : 'Agregalo a tu carrito para descargar el original en Alta Definición sin marca de agua.'}
+                    </p>
+                  </div>
+                </div>
+
+                {filtered.every(item => cartItems.some(c => c.id === item.id)) ? (
+                  <Link
+                    to="/cart"
+                    className="btn-neon text-xs sm:text-sm py-2.5 px-4 inline-flex items-center justify-center gap-2 whitespace-nowrap"
+                  >
+                    <Check className="w-4 h-4" />
+                    Ya están en tu carrito · Ir a pagar
+                  </Link>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => filtered.forEach(item => addItem(item))}
+                    className="btn-neon text-xs sm:text-sm py-2.5 px-4 inline-flex items-center justify-center gap-2 whitespace-nowrap"
+                  >
+                    <ShoppingCart className="w-4 h-4" />
+                    Agregar {filtered.length === 1 ? 'mi foto' : `mis ${filtered.length} archivos`} al carrito
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
 
       {/* Media grid */}
-      <div className="max-w-7xl mx-auto px-4 pb-16">
+      <div className="max-w-7xl mx-auto px-4 pb-28">
         {filtered.length === 0 ? (
           <div className="text-center py-24 text-gray-400">
             <Search className="w-16 h-16 mx-auto mb-4 opacity-20" />
@@ -245,6 +288,46 @@ export default function AlbumDetail() {
       {/* Magnifier viewer */}
       {viewingMedia && (
         <MagnifierViewer media={viewingMedia} onClose={() => setViewingMedia(null)} />
+      )}
+
+      {/* Barra flotante inferior de Carrito y Descuento por Pack (Sticky Bottom Bar) */}
+      {itemCount > 0 && !viewingMedia && (
+        <div className="fixed bottom-4 left-4 right-4 z-40 max-w-3xl mx-auto pointer-events-none">
+          <div className="pointer-events-auto bg-dark-800/95 backdrop-blur-md border-2 border-neon-green/60 rounded-2xl px-4 py-3 shadow-2xl flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-white font-black text-sm sm:text-base">
+                  {itemCount} {itemCount === 1 ? 'ítem seleccionado' : 'ítems seleccionados'}
+                </span>
+                {packRule && (
+                  <span className="badge-neon text-[11px]">{packRule.label} activo</span>
+                )}
+              </div>
+              <p className="text-xs text-gray-300 truncate mt-0.5">
+                {itemCount === 1 && '💡 Sumá 1 foto más y obtené 10% OFF en todo tu pack'}
+                {itemCount >= 2 && itemCount < 5 && `💡 Sumá ${5 - itemCount} más para desbloquear 20% OFF`}
+                {itemCount >= 5 && itemCount < 10 && `💡 Sumá ${10 - itemCount} más para desbloquear 30% OFF`}
+                {itemCount >= 10 && '🔥 ¡Tenés el descuento máximo del 30% OFF aplicado!'}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 flex-shrink-0">
+              <div className="text-right hidden xs:block">
+                <span className="text-[10px] text-gray-400 uppercase block leading-none">Total</span>
+                <span className="text-neon-green font-black text-base sm:text-lg">
+                  ${(total || 0).toLocaleString('es-AR')}
+                </span>
+              </div>
+              <Link
+                to="/cart"
+                className="btn-neon py-2.5 px-4 text-xs sm:text-sm inline-flex items-center gap-2 whitespace-nowrap"
+              >
+                <ShoppingCart className="w-4 h-4" />
+                <span>Ver carrito (${(total || 0).toLocaleString('es-AR')})</span>
+              </Link>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Selfie search modal (solo se descarga y monta cuando el usuario hace clic) */}
