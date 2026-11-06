@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { collection, getDocs, query, orderBy, doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import AlbumCard from '../components/AlbumCard';
@@ -385,7 +386,7 @@ export default function Home() {
               <Camera className="w-16 h-16 mx-auto mb-4 opacity-20" />
               <p className="text-lg font-medium">No hay álbumes disponibles</p>
               <p className="text-sm mt-1">
-                Visitá el <a href="/admin" className="text-neon-green hover:underline">panel de admin</a> para cargar datos de prueba.
+                Visitá el <Link to="/admin" className="text-neon-green hover:underline">panel de admin</Link> para cargar datos de prueba.
               </p>
             </div>
           ) : (

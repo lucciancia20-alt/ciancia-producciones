@@ -817,7 +817,7 @@ export default function AdminAlbums() {
                     <p className="text-gray-400 text-xs">{album.category} · {album.location} · {album.totalMedia || 0} archivos</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Link to={`/album/${album.id}`} target="_blank" className="p-2 text-gray-400 hover:text-neon-green transition-colors" title="Ver álbum">
+                    <Link to={`/album/${album.id}`} className="p-2 text-gray-400 hover:text-neon-green transition-colors" title="Ver álbum">
                       <Eye className="w-4 h-4" />
                     </Link>
                     <button

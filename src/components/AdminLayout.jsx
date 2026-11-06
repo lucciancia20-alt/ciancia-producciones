@@ -84,10 +84,8 @@ export default function AdminLayout({ children }) {
             <div className="flex items-center gap-3 text-xs">
               <Link
                 to="/"
-                target="_blank"
-                rel="noreferrer"
                 className="hidden lg:inline-flex items-center gap-1 text-gray-400 hover:text-neon-green transition-colors"
-                title="Abrir tienda en nueva pestaña"
+                title="Volver a la tienda"
               >
                 <span>Ver tienda</span>
                 <ExternalLink className="w-3.5 h-3.5" />
