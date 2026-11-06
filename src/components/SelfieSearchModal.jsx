@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Camera, Upload, Search, AlertCircle, CheckCircle, Loader2, RefreshCw } from 'lucide-react';
-import { extractSelfieDescriptor, matchFaceAgainstAlbum, initFaceApi } from '../services/aiService';
 
 /**
  * SelfieSearchModal
@@ -40,7 +39,7 @@ export default function SelfieSearchModal({ open, onClose, mediaItems = [], onRe
     }
   }, []);
 
-  // Pre-warm models when modal opens + lock body scroll + Escape listener
+  // Pre-warm models SOLO cuando el usuario abre intencionalmente el modal
   useEffect(() => {
     if (!open) return;
 
@@ -48,7 +47,8 @@ export default function SelfieSearchModal({ open, onClose, mediaItems = [], onRe
     document.body.style.overflow = 'hidden';
 
     setLoadingModels(true);
-    initFaceApi({ forAdmin: false })
+    import('../services/aiService')
+      .then(ai => ai.initFaceApi({ forAdmin: false }))
       .catch(() => {})
       .finally(() => setLoadingModels(false));
 
@@ -145,6 +145,7 @@ export default function SelfieSearchModal({ open, onClose, mediaItems = [], onRe
     setMode('analyzing');
     setErrorMsg('');
     try {
+      const { extractSelfieDescriptor, matchFaceAgainstAlbum } = await import('../services/aiService');
       const descriptor = await extractSelfieDescriptor(fileOrBlob);
       if (!descriptor) {
         setMode('error');

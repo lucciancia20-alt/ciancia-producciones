@@ -5,8 +5,10 @@ import { db } from '../firebase/config';
 import { useAuth } from '../context/AuthContext';
 import MediaCard from '../components/MediaCard';
 import MagnifierViewer from '../components/MagnifierViewer';
-import SelfieSearchModal from '../components/SelfieSearchModal';
 import { Search, ArrowLeft, Camera, Video, Filter, X, ScanFace, Trash2, Loader2 } from 'lucide-react';
+
+// Carga 100% diferida del modal de selfie para evitar que se cargue face-api / tensorflow al abrir el álbum
+const SelfieSearchModal = React.lazy(() => import('../components/SelfieSearchModal'));
 
 export default function AlbumDetail() {
   const { albumId } = useParams();
@@ -233,17 +235,21 @@ export default function AlbumDetail() {
         <MagnifierViewer media={viewingMedia} onClose={() => setViewingMedia(null)} />
       )}
 
-      {/* Selfie search modal */}
-      <SelfieSearchModal
-        open={selfieModalOpen}
-        onClose={() => setSelfieModalOpen(false)}
-        mediaItems={photosWithFaces}
-        onResults={(ids) => {
-          setFaceMatchIds(ids);
-          setFilterType('all');
-          setSearch('');
-        }}
-      />
+      {/* Selfie search modal (solo se descarga y monta cuando el usuario hace clic) */}
+      {selfieModalOpen && (
+        <React.Suspense fallback={null}>
+          <SelfieSearchModal
+            open={selfieModalOpen}
+            onClose={() => setSelfieModalOpen(false)}
+            mediaItems={photosWithFaces}
+            onResults={(ids) => {
+              setFaceMatchIds(ids);
+              setFilterType('all');
+              setSearch('');
+            }}
+          />
+        </React.Suspense>
+      )}
 
       {/* Modal de confirmación rápido para eliminar foto (modo Admin) */}
       {confirmDeleteMedia && (

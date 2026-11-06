@@ -207,10 +207,21 @@ export async function initFaceApi({ forAdmin = false } = {}) {
   if (!faceapiModule) {
     faceapiModule = await import('@vladmandic/face-api');
     try {
-      await faceapiModule.tf?.setBackend('webgl');
+      const isMobile = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+      if (isMobile) {
+        // En móviles Android/iOS usamos el backend CPU seguro para evitar crashes de WebGL/GPU
+        await faceapiModule.tf?.setBackend('cpu');
+      } else {
+        await faceapiModule.tf?.setBackend('webgl');
+      }
       await faceapiModule.tf?.ready();
     } catch {
-      // fallback — tf may already be initialized
+      try {
+        await faceapiModule.tf?.setBackend('cpu');
+        await faceapiModule.tf?.ready();
+      } catch {
+        // noop
+      }
     }
   }
 

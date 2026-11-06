@@ -11,7 +11,6 @@ import {
   Bot, ScanFace, Save, Trash2, Tag,
 } from 'lucide-react';
 import { uploadToCloudinary } from '../../services/cloudinary';
-import { analyzeImageFile } from '../../services/aiService';
 
 // ─── Estados posibles de cada archivo en la cola ─────────────────────────────
 // 'idle' | 'uploading' | 'done' | 'error'
@@ -292,26 +291,26 @@ export default function AdminAlbums() {
     }));
     setUploadFiles(prev => [...prev, ...items]);
 
-    // Análisis IA automático en segundo plano (cola serializada en aiService)
-    items.filter(it => it.aiStatus === 'analyzing').forEach(it => {
-      analyzeImageFile(it.file)
-        .then(({ dorsals, faceDescriptors }) => {
-          setUploadFiles(prev => prev.map(f => {
-            if (f.id !== it.id) return f;
-            return {
-              ...f,
-              aiStatus: 'done',
-              aiDorsals: dorsals,
-              faceDescriptors,
-              // Sugerencia editable: solo si el admin no escribió nada a mano
-              dorsals: !f.dorsalsTouched && !f.dorsals.trim() ? dorsals.join(', ') : f.dorsals,
-            };
-          }));
-        })
-        .catch(err => {
-          console.warn('[AdminAlbums] IA falló', err);
-          patchFile(it.id, { aiStatus: 'error' });
-        });
+    // Análisis IA automático en segundo plano (import 100% dinámico)
+    items.filter(it => it.aiStatus === 'analyzing').forEach(async (it) => {
+      try {
+        const { analyzeImageFile } = await import('../../services/aiService');
+        const { dorsals, faceDescriptors } = await analyzeImageFile(it.file);
+        setUploadFiles(prev => prev.map(f => {
+          if (f.id !== it.id) return f;
+          return {
+            ...f,
+            aiStatus: 'done',
+            aiDorsals: dorsals,
+            faceDescriptors,
+            // Sugerencia editable: solo si el admin no escribió nada a mano
+            dorsals: !f.dorsalsTouched && !f.dorsals.trim() ? dorsals.join(', ') : f.dorsals,
+          };
+        }));
+      } catch (err) {
+        console.warn('[AdminAlbums] IA falló', err);
+        patchFile(it.id, { aiStatus: 'error' });
+      }
     });
   };
 
