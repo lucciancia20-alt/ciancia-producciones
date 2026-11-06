@@ -1,7 +1,7 @@
 /**
  * aiService.js — Ciancia Producciones
  * Client-side AI:
- *   1. Lectura de dorsales deportivos (Google Gemini 2.5 Flash / 1.5 Flash Vision API)
+ *   1. Lectura de dorsales deportivos (Google Gemini 1.5 Flash Vision API)
  *   2. Reconocimiento Facial (@vladmandic/face-api con serialización plana para Firestore)
  */
 
@@ -103,10 +103,10 @@ function getGeminiApiKey() {
 const PROMPT_DORSALES = "Analiza esta foto deportiva. Extrae todos los números de dorsales o pecheras visibles en los competidores (ej. 923, 106, 462). Devuelve estrictamente un array JSON plano de strings con los números encontrados. Si no hay dorsales, devuelve [].";
 
 /**
- * Realiza la petición POST a la API de Google Generative Language.
+ * Realiza la petición POST a la API de Google Generative Language usando estrictamente gemini-1.5-flash.
  */
-async function callGeminiVision(base64Data, mimeType, apiKey, modelName = 'gemini-1.5-flash') {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(apiKey)}`;
+async function callGeminiVision(base64Data, mimeType, apiKey) {
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
 
   return fetch(endpoint, {
     method: 'POST',
@@ -148,16 +148,8 @@ export async function detectDorsalsFromFile(imageFile) {
     const base64Data = await fileToBase64(imageFile);
     const mimeType = imageFile.type || 'image/jpeg';
 
-    // 1. Intento primario con Gemini 1.5 Flash (modelo universal y estable en API v1beta)
-    let response = await callGeminiVision(base64Data, mimeType, apiKey, 'gemini-1.5-flash');
-
-    // 2. Fallbacks estables en caso de nombres de versión alternativos en la cuenta del usuario
-    if (response.status === 404) {
-      response = await callGeminiVision(base64Data, mimeType, apiKey, 'gemini-1.5-flash-latest');
-    }
-    if (response.status === 404) {
-      response = await callGeminiVision(base64Data, mimeType, apiKey, 'gemini-1.5-pro');
-    }
+    // Única llamada directa y plana usando estrictamente gemini-1.5-flash (sin fallbacks ni bucles)
+    const response = await callGeminiVision(base64Data, mimeType, apiKey);
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
