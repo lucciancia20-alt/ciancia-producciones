@@ -16,16 +16,14 @@ import { GoogleGenAI } from '@google/genai';
  * @param {number} maxDimension
  * @returns {Promise<{ base64: string, mimeType: string }>}
  */
-function fileToBase64(file, maxDimension = 1600) {
+function fileToBase64(file, maxDimension = 1280) {
   return new Promise((resolve, reject) => {
-    const rawMime = file.type || 'image/jpeg';
-
-    if (!file.type || !file.type.startsWith('image/') || file.size < 400 * 1024) {
+    if (!file || !file.type || !file.type.startsWith('image/')) {
       const reader = new FileReader();
       reader.onload = () => {
         const result = String(reader.result || '');
         const base64 = result.includes(',') ? result.split(',')[1] : result;
-        resolve({ base64, mimeType: rawMime });
+        resolve({ base64, mimeType: file?.type || 'image/jpeg' });
       };
       reader.onerror = reject;
       reader.readAsDataURL(file);
@@ -39,22 +37,9 @@ function fileToBase64(file, maxDimension = 1600) {
       try {
         const nw = img.naturalWidth || img.width;
         const nh = img.naturalHeight || img.height;
-
-        if (nw <= maxDimension && nh <= maxDimension && file.size < 1.2 * 1024 * 1024) {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const result = String(reader.result || '');
-            const base64 = result.includes(',') ? result.split(',')[1] : result;
-            resolve({ base64, mimeType: rawMime });
-          };
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-          return;
-        }
-
         const scale = Math.min(1, maxDimension / Math.max(nw, nh));
-        const w = Math.round(nw * scale);
-        const h = Math.round(nh * scale);
+        const w = Math.max(1, Math.round(nw * scale));
+        const h = Math.max(1, Math.round(nh * scale));
 
         const canvas = document.createElement('canvas');
         canvas.width = w;
@@ -62,7 +47,7 @@ function fileToBase64(file, maxDimension = 1600) {
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, w, h);
 
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
         const base64 = dataUrl.split(',')[1] || dataUrl;
         resolve({ base64, mimeType: 'image/jpeg' });
       } catch {
@@ -70,7 +55,7 @@ function fileToBase64(file, maxDimension = 1600) {
         reader.onload = () => {
           const result = String(reader.result || '');
           const base64 = result.includes(',') ? result.split(',')[1] : result;
-          resolve({ base64, mimeType: rawMime });
+          resolve({ base64, mimeType: 'image/jpeg' });
         };
         reader.onerror = reject;
         reader.readAsDataURL(file);
@@ -82,7 +67,7 @@ function fileToBase64(file, maxDimension = 1600) {
       reader.onload = () => {
         const result = String(reader.result || '');
         const base64 = result.includes(',') ? result.split(',')[1] : result;
-        resolve({ base64, mimeType: rawMime });
+        resolve({ base64, mimeType: 'image/jpeg' });
       };
       reader.onerror = reject;
       reader.readAsDataURL(file);
@@ -117,7 +102,7 @@ const PROMPT_DORSALES = 'Extrae todos los números de dorsales/pecheras visibles
  * devuelven 404 en v1 y v1beta. Override opcional con VITE_GEMINI_MODEL en Render.
  */
 const GEMINI_MODEL = (import.meta.env?.VITE_GEMINI_MODEL && String(import.meta.env.VITE_GEMINI_MODEL).trim()) || 'gemini-flash-latest';
-const GEMINI_TIMEOUT_MS = 10000;
+const GEMINI_TIMEOUT_MS = 35000;
 
 let aiClient = null;
 let aiClientKey = null;
