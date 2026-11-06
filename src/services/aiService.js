@@ -218,7 +218,7 @@ export async function detectDorsalsFromFile(imageFile) {
     const ai = getAiClient(apiKey);
     const { base64, mimeType } = await fileToBase64(imageFile);
 
-    const response = await withTimeout(
+    const callOnce = () => withTimeout(
       (abortSignal) => ai.models.generateContent({
         model: GEMINI_MODEL,
         contents: [
@@ -232,12 +232,26 @@ export async function detectDorsalsFromFile(imageFile) {
         ],
         config: {
           temperature: 0.1,
+          maxOutputTokens: 200,
           responseMimeType: 'application/json',
+          thinkingConfig: { thinkingBudget: 0 },
           abortSignal,
         },
       }),
       GEMINI_TIMEOUT_MS,
     );
+
+    let response;
+    try {
+      response = await callOnce();
+    } catch (firstErr) {
+      if (firstErr?.name === 'TimeoutError') {
+        console.warn(`[aiService] Reintentando lectura de dorsales para "${imageFile?.name || 'imagen'}" tras timeout inicial...`);
+        response = await callOnce();
+      } else {
+        throw firstErr;
+      }
+    }
 
     const dorsals = parseDorsalsResponse(response?.text ?? '');
     console.log(`[aiService] Gemini (${GEMINI_MODEL}) detectó ${dorsals.length} dorsal(es):`, dorsals);
@@ -465,11 +479,10 @@ function settleWithin(promise, ms, fallback, label) {
 
 export function analyzeImageFile(file) {
   const run = async () => {
-    // Fail-safe: ninguna de las dos tareas puede trabar la cola de subida
-    const [dorsals, faceDescriptors] = await Promise.all([
-      settleWithin(detectDorsalsFromFile(file), GEMINI_TIMEOUT_MS + 2000, [], 'Detección de dorsales'),
-      settleWithin(extractFaceDescriptors(file, { forAdmin: true }), FACE_TIMEOUT_MS, [], 'Detección de rostros'),
-    ]);
+    // Ejecutamos primero dorsales y luego rostros para que la descarga/compilación WebGL
+    // de face-api no bloquee el hilo principal mientras corre el timeout de Gemini.
+    const dorsals = await settleWithin(detectDorsalsFromFile(file), GEMINI_TIMEOUT_MS * 2 + 5000, [], 'Detección de dorsales');
+    const faceDescriptors = await settleWithin(extractFaceDescriptors(file, { forAdmin: true }), FACE_TIMEOUT_MS, [], 'Detección de rostros');
     return { dorsals, faceDescriptors };
   };
   const result = analysisChain.then(run, run);
