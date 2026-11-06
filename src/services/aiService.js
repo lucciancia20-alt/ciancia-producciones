@@ -103,10 +103,10 @@ function getGeminiApiKey() {
 const PROMPT_DORSALES = "Analiza esta foto deportiva. Extrae todos los números de dorsales o pecheras visibles en los competidores (ej. 923, 106, 462). Devuelve estrictamente un array JSON plano de strings con los números encontrados. Si no hay dorsales, devuelve [].";
 
 /**
- * Realiza la petición POST a la API de Google Generative Language usando estrictamente gemini-1.5-flash.
+ * Realiza la petición POST a la API de Google Generative Language.
  */
-async function callGeminiVision(base64Data, mimeType, apiKey) {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+async function callGeminiVision(base64Data, mimeType, apiKey, modelName = 'gemini-1.5-flash') {
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
   return fetch(endpoint, {
     method: 'POST',
@@ -148,12 +148,18 @@ export async function detectDorsalsFromFile(imageFile) {
     const base64Data = await fileToBase64(imageFile);
     const mimeType = imageFile.type || 'image/jpeg';
 
-    // Única llamada directa y plana usando estrictamente gemini-1.5-flash (sin fallbacks ni bucles)
-    const response = await callGeminiVision(base64Data, mimeType, apiKey);
+    // Modelo configurable por entorno (por defecto gemini-1.5-flash)
+    const targetModel = import.meta.env?.VITE_GEMINI_MODEL || 'gemini-1.5-flash';
+    let response = await callGeminiVision(base64Data, mimeType, apiKey, targetModel);
+
+    // Fallback directo a gemini-1.5-flash si se hubiese configurado otro y responde 404
+    if (response.status === 404 && targetModel !== 'gemini-1.5-flash') {
+      response = await callGeminiVision(base64Data, mimeType, apiKey, 'gemini-1.5-flash');
+    }
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      console.warn(`[aiService] Gemini API respondió con estado ${response.status}:`, errorText);
+      console.warn(`[aiService] Gemini API (${targetModel}) respondió con estado ${response.status}:`, errorText);
       return [];
     }
 
