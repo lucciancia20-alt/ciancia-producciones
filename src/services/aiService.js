@@ -1,9 +1,11 @@
 /**
  * aiService.js — Ciancia Producciones
  * Client-side AI:
- *   1. Lectura de dorsales deportivos (Google Gemini 1.5 Flash Vision API)
+ *   1. Lectura de dorsales deportivos (SDK oficial @google/genai + Gemini Flash vigente)
  *   2. Reconocimiento Facial (@vladmandic/face-api con serialización plana para Firestore)
  */
+
+import { GoogleGenAI } from '@google/genai';
 
 /**
  * Convierte un File o Blob en base64 puro y su correspondiente MIME type para Gemini Vision.
@@ -109,99 +111,203 @@ function getGeminiApiKey() {
 const PROMPT_DORSALES = 'Extrae todos los números de dorsales/pecheras visibles en esta imagen de running y devuélvelos en un array JSON de strings puro, ejemplo: ["1442", "1341"]. Si no hay dorsales visibles, devuelve [].';
 
 /**
- * Realiza la petición POST a la API de Google Generative Language usando estrictamente gemini-1.5-flash.
+ * Modelos preferidos, en orden. `gemini-flash-latest` es el alias oficial que Google
+ * mantiene apuntando siempre al Flash estable vigente, por eso va primero.
+ * NOTA: gemini-1.5-flash y gemini-1.5-pro fueron RETIRADOS por Google; cualquier
+ * llamada a ellos devuelve 404 "not found for API version v1/v1beta". Esa era la
+ * causa real del error en producción (no los headers ni el payload).
  */
-async function callGeminiVision(base64Data, mimeType, apiKey) {
-  const endpoint = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+const PREFERRED_MODELS = [
+  'gemini-flash-latest',
+  'gemini-2.5-flash',
+  'gemini-flash-lite-latest',
+  'gemini-2.5-flash-lite',
+];
 
-  const payload = {
-    contents: [
-      {
-        parts: [
-          { text: PROMPT_DORSALES },
-          {
-            inline_data: {
-              mime_type: mimeType || 'image/jpeg',
-              data: base64Data,
-            },
-          },
-        ],
-      },
-    ],
-    generationConfig: {
-      temperature: 0.1,
-      responseMimeType: 'application/json',
-    },
+let aiClient = null;
+let aiClientKey = null;
+let resolvedModelPromise = null;
+const failedModels = new Set();
+
+function getAiClient(apiKey) {
+  if (!aiClient || aiClientKey !== apiKey) {
+    aiClient = new GoogleGenAI({ apiKey });
+    aiClientKey = apiKey;
+    resolvedModelPromise = null;
+  }
+  return aiClient;
+}
+
+/** Arma un objeto de error descriptivo para diagnóstico en consola. */
+function describeGeminiError(err, context = {}) {
+  const message = String(err?.message || err || 'Error desconocido');
+  const statusMatch = message.match(/\b(400|401|403|404|429|500|503)\b/);
+  const status = err?.status ?? (statusMatch ? Number(statusMatch[1]) : undefined);
+  const hints = {
+    400: 'Solicitud inválida o API key con formato incorrecto. Revisá VITE_GEMINI_API_KEY.',
+    401: 'API key inválida o no autorizada.',
+    403: 'API key sin permisos para Generative Language API o restringida por dominio/referrer (agregá ciancia-producciones.onrender.com en Google Cloud Console).',
+    404: 'El modelo no existe o fue retirado para esta API key.',
+    429: 'Cuota excedida (rate limit del plan gratuito). Reintentar en unos segundos.',
+    500: 'Error interno de Google. Reintentar.',
+    503: 'Servicio de Gemini sobrecargado. Reintentar.',
   };
+  return {
+    service: 'Gemini Vision (dorsales)',
+    status,
+    hint: hints[status] || (err instanceof TypeError ? 'Fallo de red / CORS / sin conexión.' : 'Ver mensaje original.'),
+    message,
+    ...context,
+  };
+}
 
-  return fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': apiKey,
-    },
-    body: JSON.stringify(payload),
-  });
+/**
+ * Descubre (una sola vez por sesión) qué modelo Flash está realmente disponible
+ * para la API key, consultando ListModels mediante el SDK oficial.
+ * Permite override manual con VITE_GEMINI_MODEL.
+ */
+async function resolveGeminiModel(ai) {
+  const override = import.meta.env?.VITE_GEMINI_MODEL;
+  if (override && String(override).trim()) return String(override).trim();
+
+  if (!resolvedModelPromise) {
+    resolvedModelPromise = (async () => {
+      const available = [];
+      try {
+        const pager = await ai.models.list({ config: { pageSize: 100 } });
+        for await (const m of pager) {
+          const name = String(m?.name || '').replace(/^models\//, '');
+          const actions = m?.supportedActions || [];
+          if (!name.startsWith('gemini')) continue;
+          if (actions.length && !actions.includes('generateContent')) continue;
+          if (failedModels.has(name)) continue;
+          available.push(name);
+        }
+      } catch (err) {
+        console.error('[aiService] No se pudo listar modelos de Gemini:', describeGeminiError(err, { step: 'models.list' }));
+        return PREFERRED_MODELS.find(p => !failedModels.has(p)) || PREFERRED_MODELS[0];
+      }
+
+      const preferred = PREFERRED_MODELS.find(p => available.includes(p));
+      if (preferred) return preferred;
+
+      // Cualquier Flash estable con visión (sin exp/preview/tts/image/live/embedding)
+      const stableFlash = available
+        .filter(n => n.includes('flash') && !/(exp|preview|tts|image|live|audio|embedding|thinking)/i.test(n))
+        .sort()
+        .reverse();
+      if (stableFlash.length) return stableFlash[0];
+
+      console.warn('[aiService] Ningún modelo Flash estable disponible. Modelos visibles para la key:', available);
+      return available[0] || PREFERRED_MODELS[0];
+    })();
+  }
+  const model = await resolvedModelPromise;
+  return model;
+}
+
+/** Extrae un array plano de dorsales limpios desde el texto devuelto por Gemini. */
+export function parseDorsalsResponse(rawText) {
+  const cleanedText = String(rawText || '')
+    .replace(/```(?:json)?/gi, '')
+    .trim();
+
+  let parsed = [];
+  try {
+    parsed = JSON.parse(cleanedText || '[]');
+  } catch {
+    const match = cleanedText.match(/\[[\s\S]*?\]/);
+    try {
+      parsed = match ? JSON.parse(match[0]) : [];
+    } catch {
+      parsed = [];
+    }
+  }
+
+  // Tolerar formatos { dorsales: [...] } o { dorsals: [...] }
+  if (parsed && !Array.isArray(parsed) && typeof parsed === 'object') {
+    parsed = parsed.dorsales || parsed.dorsals || parsed.numbers || [];
+  }
+  if (!Array.isArray(parsed)) return [];
+
+  // Normalizar a strings de 1 a 5 dígitos, sin ceros puros, únicos
+  return [...new Set(
+    parsed
+      .map(v => String(v ?? '').replace(/\D/g, '').trim())
+      .filter(v => v.length >= 1 && v.length <= 5 && !/^0+$/.test(v))
+  )];
 }
 
 /**
  * detectDorsalsFromFile(imageFile)
- * Extrae números de dorsales de una foto deportiva utilizando Google Gemini Vision.
- * Si la API key no está definida o hay un error de red/cuota, devuelve [] de forma segura.
+ * Extrae números de dorsales de una foto deportiva usando el SDK oficial @google/genai.
+ * Ante cualquier error (red, auth, cuota, formato) imprime un diagnóstico detallado
+ * y devuelve [] para no romper la cola de subida.
  *
  * @param {File|Blob} imageFile
  * @returns {Promise<string[]>}
  */
 export async function detectDorsalsFromFile(imageFile) {
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) {
+    console.warn('[aiService] VITE_GEMINI_API_KEY no configurada. Omitiendo detección automática de dorsales.');
+    return [];
+  }
+
+  let model = null;
   try {
-    const apiKey = getGeminiApiKey();
-    if (!apiKey) {
-      console.warn('[aiService] VITE_GEMINI_API_KEY no configurada. Omitiendo detección automática de dorsales.');
-      return [];
-    }
-
+    const ai = getAiClient(apiKey);
     const { base64, mimeType } = await fileToBase64(imageFile);
+    model = await resolveGeminiModel(ai);
 
-    // Única llamada plana y directa usando estrictamente gemini-1.5-flash
-    const response = await callGeminiVision(base64, mimeType, apiKey);
+    const request = {
+      model,
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: PROMPT_DORSALES },
+            { inlineData: { mimeType: mimeType || 'image/jpeg', data: base64 } },
+          ],
+        },
+      ],
+      config: {
+        temperature: 0.1,
+        responseMimeType: 'application/json',
+      },
+    };
 
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-      console.error(`[aiService] Error en llamada a Gemini (HTTP ${response.status}):`, errorText);
+    let response;
+    try {
+      response = await ai.models.generateContent(request);
+    } catch (err) {
+      // Si el modelo cacheado dejó de existir (404), redescubrir una vez y reintentar
+      if (describeGeminiError(err).status === 404 && !import.meta.env?.VITE_GEMINI_MODEL) {
+        console.warn(`[aiService] Modelo "${model}" no disponible (404). Redescubriendo modelos...`);
+        failedModels.add(model);
+        resolvedModelPromise = null;
+        model = await resolveGeminiModel(ai);
+        response = await ai.models.generateContent({ ...request, model });
+      } else {
+        throw err;
+      }
+    }
+
+    const rawText = response?.text ?? '';
+    if (!rawText) {
+      console.warn('[aiService] Gemini respondió sin texto.', {
+        model,
+        finishReason: response?.candidates?.[0]?.finishReason,
+        promptFeedback: response?.promptFeedback,
+      });
       return [];
     }
 
-    const json = await response.json();
-    const rawText = json?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '[]';
-
-    // Limpieza robusta en caso de envoltorios markdown ```json ... ``` o ``` ... ```
-    const cleanedText = String(rawText || '')
-      .replace(/^```json\s*/i, '')
-      .replace(/^```\s*/i, '')
-      .replace(/```$/i, '')
-      .trim();
-
-    let parsed = [];
-    try {
-      parsed = JSON.parse(cleanedText);
-    } catch {
-      const match = cleanedText.match(/\[.*?\]/s);
-      parsed = match ? JSON.parse(match[0]) : [];
-    }
-
-    if (!Array.isArray(parsed)) return [];
-
-    // Normalizar a strings de 1 a 5 dígitos, sin ceros puros, únicos
-    const dorsals = [...new Set(
-      parsed
-        .map(v => String(v).replace(/\D/g, '').trim())
-        .filter(v => v.length >= 1 && v.length <= 5 && !/^0+$/.test(v))
-    )];
-
-    console.log(`[aiService] Gemini detectó ${dorsals.length} dorsal(es):`, dorsals);
+    const dorsals = parseDorsalsResponse(rawText);
+    console.log(`[aiService] Gemini (${model}) detectó ${dorsals.length} dorsal(es):`, dorsals);
     return dorsals;
   } catch (err) {
-    console.error('[aiService] Error de red o ejecución en detección de dorsales con Gemini Vision:', err);
+    console.error('[aiService] Error en detección de dorsales:', describeGeminiError(err, { model, file: imageFile?.name }));
     return [];
   }
 }

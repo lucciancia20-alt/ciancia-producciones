@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@google/genai": "^3.0.0",
     "@vladmandic/face-api": "^1.7.15",
     "firebase": "^10.14.1",
     "lucide-react": "^0.460.0",
