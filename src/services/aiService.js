@@ -127,7 +127,7 @@ let geminiDisabledReason = null;
 
 function getAiClient(apiKey) {
   if (!aiClient || aiClientKey !== apiKey) {
-    aiClient = new GoogleGenAI({ apiKey });
+    aiClient = new GoogleGenAI({ apiKey, apiVersion: 'v1beta' });
     aiClientKey = apiKey;
   }
   return aiClient;
