@@ -105,12 +105,15 @@ const PROMPT_DORSALES = "Analiza esta foto deportiva. Extrae todos los números 
 /**
  * Realiza la petición POST a la API de Google Generative Language.
  */
-async function callGeminiVision(base64Data, mimeType, apiKey, modelName = 'gemini-2.5-flash') {
+async function callGeminiVision(base64Data, mimeType, apiKey, modelName = 'gemini-2.0-flash') {
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
   return fetch(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': apiKey,
+    },
     body: JSON.stringify({
       contents: [{
         parts: [
@@ -145,12 +148,15 @@ export async function detectDorsalsFromFile(imageFile) {
     const base64Data = await fileToBase64(imageFile);
     const mimeType = imageFile.type || 'image/jpeg';
 
-    // 1. Intento primario con Gemini 2.5 Flash
-    let response = await callGeminiVision(base64Data, mimeType, apiKey, 'gemini-2.5-flash');
+    // 1. Intento primario con Gemini 2.0 Flash (modelo vigente v1beta)
+    let response = await callGeminiVision(base64Data, mimeType, apiKey, 'gemini-2.0-flash');
 
-    // 2. Si 2.5-flash no estuviese disponible (ej. 404), fallback a gemini-1.5-flash
+    // 2. Si 2.0-flash devuelve 404, fallback a gemini-2.5-flash o gemini-2.0-flash-exp
     if (response.status === 404) {
-      response = await callGeminiVision(base64Data, mimeType, apiKey, 'gemini-1.5-flash');
+      response = await callGeminiVision(base64Data, mimeType, apiKey, 'gemini-2.5-flash');
+    }
+    if (response.status === 404) {
+      response = await callGeminiVision(base64Data, mimeType, apiKey, 'gemini-2.0-flash-exp');
     }
 
     if (!response.ok) {

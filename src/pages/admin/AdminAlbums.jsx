@@ -238,7 +238,20 @@ export default function AdminAlbums() {
 
   const CATEGORIES = ['Trail Running', 'Ciclismo', 'Fútbol', 'Dron', 'Natación', 'Atletismo', 'Otro'];
 
-  useEffect(() => { loadAlbums(); }, []);
+  useEffect(() => {
+    loadAlbums();
+
+    // Evitar que arrastrar archivos fuera del área abra la imagen en una pestaña nueva
+    const preventWindowDrop = (e) => {
+      e.preventDefault();
+    };
+    window.addEventListener('dragover', preventWindowDrop);
+    window.addEventListener('drop', preventWindowDrop);
+    return () => {
+      window.removeEventListener('dragover', preventWindowDrop);
+      window.removeEventListener('drop', preventWindowDrop);
+    };
+  }, []);
 
   async function loadAlbums() {
     try {
@@ -316,6 +329,8 @@ export default function AdminAlbums() {
 
   const handleDrop = (e) => {
     e.preventDefault();
+    e.stopPropagation();
+    if (uploading) return;
     addFiles(Array.from(e.dataTransfer.files));
   };
 
@@ -334,7 +349,8 @@ export default function AdminAlbums() {
     setUploadFiles(prev => prev.map(f => f.id === id ? { ...f, ...patch } : f));
 
   // ─── Subida a Cloudinary + guardado en Firestore ─────────────────────────────
-  const handleUpload = async () => {
+  const handleUpload = async (e) => {
+    if (e?.preventDefault) e.preventDefault();
     if (!uploadAlbumId)        { alert('Seleccioná un álbum de destino'); return; }
     if (!uploadFiles.length)   { alert('Agregá al menos un archivo');     return; }
     if (uploading)             return;
@@ -414,23 +430,29 @@ export default function AdminAlbums() {
       await Promise.all(batch.map(processOne));
     }
 
-    // 3) Actualizar contador del álbum en Firestore
+    // 3) Actualizar contador del álbum en Firestore y reflejarlo de inmediato en el estado
     if (ok > 0) {
       await updateDoc(doc(db, 'albums', uploadAlbumId), {
         totalMedia: (album?.totalMedia || 0) + ok,
       });
+      // Actualizar contador del álbum en el estado local de forma fluida
+      setAlbums(prev => prev.map(a => a.id === uploadAlbumId ? { ...a, totalMedia: (a.totalMedia || 0) + ok } : a));
     }
 
     setUploadSummary({ ok, errors });
     setUploading(false);
 
-    // Limpiar solo los exitosos; dejar los errores para reintentar
+    // Limpiar solo los exitosos; dejar los errores para reintentar sin recargar ni salir de la vista
     setUploadFiles(prev => prev.filter(f => f.status !== 'done'));
-    await loadAlbums();
-    // Refrescar la lista de archivos del álbum si estaba abierta
+    loadAlbums();
+
+    // Refrescar la lista de fotos del álbum si el usuario la tiene expandida
     if (ok > 0) {
-      if (expandedAlbum === uploadAlbumId) loadAlbumMedia(uploadAlbumId);
-      else setAlbumMedia(prev => { const n = { ...prev }; delete n[uploadAlbumId]; return n; });
+      if (expandedAlbum === uploadAlbumId) {
+        loadAlbumMedia(uploadAlbumId);
+      } else {
+        setAlbumMedia(prev => { const n = { ...prev }; delete n[uploadAlbumId]; return n; });
+      }
     }
   };
 
@@ -548,7 +570,7 @@ export default function AdminAlbums() {
           <div
             ref={dropRef}
             onDrop={handleDrop}
-            onDragOver={e => e.preventDefault()}
+            onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
             onClick={() => !uploading && document.getElementById('cloudFileInput').click()}
             className={`border-2 border-dashed rounded-xl p-10 text-center transition-colors select-none
               ${uploading
@@ -697,6 +719,7 @@ export default function AdminAlbums() {
               {/* ── Acciones ──────────────────────────────────────────────── */}
               <div className="flex flex-wrap items-center gap-3 pt-2">
                 <button
+                  type="button"
                   onClick={handleUpload}
                   disabled={uploading || idleCount === 0}
                   className="btn-neon flex items-center gap-2"
@@ -708,13 +731,13 @@ export default function AdminAlbums() {
                 </button>
 
                 {hasErrors && !uploading && (
-                  <button onClick={retryErrors} className="btn-outline-neon text-sm py-2 flex items-center gap-2">
+                  <button type="button" onClick={retryErrors} className="btn-outline-neon text-sm py-2 flex items-center gap-2">
                     <Loader2 className="w-4 h-4" /> Reintentar errores
                   </button>
                 )}
 
                 {!uploading && (
-                  <button onClick={clearAll} className="text-gray-500 hover:text-red-400 text-sm transition-colors">
+                  <button type="button" onClick={clearAll} className="text-gray-500 hover:text-red-400 text-sm transition-colors">
                     Limpiar todo
                   </button>
                 )}
