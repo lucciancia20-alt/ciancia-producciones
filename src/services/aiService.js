@@ -111,99 +111,72 @@ function getGeminiApiKey() {
 const PROMPT_DORSALES = 'Extrae todos los números de dorsales/pecheras visibles en esta imagen de running y devuélvelos en un array JSON de strings puro, ejemplo: ["1442", "1341"]. Si no hay dorsales visibles, devuelve [].';
 
 /**
- * Modelos preferidos, en orden. `gemini-flash-latest` es el alias oficial que Google
- * mantiene apuntando siempre al Flash estable vigente, por eso va primero.
- * NOTA: gemini-1.5-flash y gemini-1.5-pro fueron RETIRADOS por Google; cualquier
- * llamada a ellos devuelve 404 "not found for API version v1/v1beta". Esa era la
- * causa real del error en producción (no los headers ni el payload).
+ * Modelo ÚNICO y fijo (sin descubrimiento dinámico).
+ * `gemini-flash-latest` es el alias oficial que Google mantiene apuntando al Flash
+ * estable vigente. NO usar `gemini-1.5-flash` ni `gemini-pro`: fueron retirados y
+ * devuelven 404 en v1 y v1beta. Override opcional con VITE_GEMINI_MODEL en Render.
  */
-const PREFERRED_MODELS = [
-  'gemini-flash-latest',
-  'gemini-2.5-flash',
-  'gemini-flash-lite-latest',
-  'gemini-2.5-flash-lite',
-];
+const GEMINI_MODEL = (import.meta.env?.VITE_GEMINI_MODEL && String(import.meta.env.VITE_GEMINI_MODEL).trim()) || 'gemini-flash-latest';
+const GEMINI_TIMEOUT_MS = 10000;
 
 let aiClient = null;
 let aiClientKey = null;
-let resolvedModelPromise = null;
-const failedModels = new Set();
+// Si Gemini falla de forma permanente (404/400/401/403), se deshabilita para el resto
+// de la sesión: se loguea UNA sola vez y las demás fotos no esperan nada.
+let geminiDisabledReason = null;
 
 function getAiClient(apiKey) {
   if (!aiClient || aiClientKey !== apiKey) {
     aiClient = new GoogleGenAI({ apiKey });
     aiClientKey = apiKey;
-    resolvedModelPromise = null;
   }
   return aiClient;
 }
 
+/** Extrae el código HTTP de un error del SDK (si lo hay). */
+function getErrorStatus(err) {
+  if (typeof err?.status === 'number') return err.status;
+  const m = String(err?.message || '').match(/\b(400|401|403|404|429|500|503)\b/);
+  return m ? Number(m[1]) : undefined;
+}
+
 /** Arma un objeto de error descriptivo para diagnóstico en consola. */
 function describeGeminiError(err, context = {}) {
-  const message = String(err?.message || err || 'Error desconocido');
-  const statusMatch = message.match(/\b(400|401|403|404|429|500|503)\b/);
-  const status = err?.status ?? (statusMatch ? Number(statusMatch[1]) : undefined);
+  const status = getErrorStatus(err);
   const hints = {
     400: 'Solicitud inválida o API key con formato incorrecto. Revisá VITE_GEMINI_API_KEY.',
     401: 'API key inválida o no autorizada.',
-    403: 'API key sin permisos para Generative Language API o restringida por dominio/referrer (agregá ciancia-producciones.onrender.com en Google Cloud Console).',
-    404: 'El modelo no existe o fue retirado para esta API key.',
-    429: 'Cuota excedida (rate limit del plan gratuito). Reintentar en unos segundos.',
-    500: 'Error interno de Google. Reintentar.',
-    503: 'Servicio de Gemini sobrecargado. Reintentar.',
+    403: 'API key sin permisos o restringida por dominio. Agregá https://ciancia-producciones.onrender.com/* en las restricciones de la key (Google Cloud Console).',
+    404: `El modelo "${GEMINI_MODEL}" no existe para esta key. Definí VITE_GEMINI_MODEL en Render con un modelo vigente (ej. gemini-2.5-flash).`,
+    429: 'Cuota excedida (rate limit del plan gratuito).',
+    500: 'Error interno de Google.',
+    503: 'Servicio de Gemini sobrecargado.',
   };
   return {
     service: 'Gemini Vision (dorsales)',
+    model: GEMINI_MODEL,
     status,
-    hint: hints[status] || (err instanceof TypeError ? 'Fallo de red / CORS / sin conexión.' : 'Ver mensaje original.'),
-    message,
+    hint: err?.name === 'TimeoutError'
+      ? `Gemini no respondió en ${GEMINI_TIMEOUT_MS / 1000}s.`
+      : hints[status] || (err instanceof TypeError ? 'Fallo de red / CORS / sin conexión.' : 'Ver mensaje original.'),
+    message: String(err?.message || err || 'Error desconocido'),
     ...context,
   };
 }
 
-/**
- * Descubre (una sola vez por sesión) qué modelo Flash está realmente disponible
- * para la API key, consultando ListModels mediante el SDK oficial.
- * Permite override manual con VITE_GEMINI_MODEL.
- */
-async function resolveGeminiModel(ai) {
-  const override = import.meta.env?.VITE_GEMINI_MODEL;
-  if (override && String(override).trim()) return String(override).trim();
-
-  if (!resolvedModelPromise) {
-    resolvedModelPromise = (async () => {
-      const available = [];
-      try {
-        const pager = await ai.models.list({ config: { pageSize: 100 } });
-        for await (const m of pager) {
-          const name = String(m?.name || '').replace(/^models\//, '');
-          const actions = m?.supportedActions || [];
-          if (!name.startsWith('gemini')) continue;
-          if (actions.length && !actions.includes('generateContent')) continue;
-          if (failedModels.has(name)) continue;
-          available.push(name);
-        }
-      } catch (err) {
-        console.error('[aiService] No se pudo listar modelos de Gemini:', describeGeminiError(err, { step: 'models.list' }));
-        return PREFERRED_MODELS.find(p => !failedModels.has(p)) || PREFERRED_MODELS[0];
-      }
-
-      const preferred = PREFERRED_MODELS.find(p => available.includes(p));
-      if (preferred) return preferred;
-
-      // Cualquier Flash estable con visión (sin exp/preview/tts/image/live/embedding)
-      const stableFlash = available
-        .filter(n => n.includes('flash') && !/(exp|preview|tts|image|live|audio|embedding|thinking)/i.test(n))
-        .sort()
-        .reverse();
-      if (stableFlash.length) return stableFlash[0];
-
-      console.warn('[aiService] Ningún modelo Flash estable disponible. Modelos visibles para la key:', available);
-      return available[0] || PREFERRED_MODELS[0];
-    })();
-  }
-  const model = await resolvedModelPromise;
-  return model;
+/** Rechaza la promesa si no resuelve dentro de `ms` (y aborta la petición). */
+function withTimeout(promiseFactory, ms) {
+  const controller = new AbortController();
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      const e = new Error(`Timeout de ${ms} ms esperando a Gemini`);
+      e.name = 'TimeoutError';
+      reject(e);
+    }, ms);
+  });
+  return Promise.race([promiseFactory(controller.signal), timeout]).finally(() => clearTimeout(timer));
 }
 
 /** Extrae un array plano de dorsales limpios desde el texto devuelto por Gemini. */
@@ -240,74 +213,59 @@ export function parseDorsalsResponse(rawText) {
 
 /**
  * detectDorsalsFromFile(imageFile)
- * Extrae números de dorsales de una foto deportiva usando el SDK oficial @google/genai.
- * Ante cualquier error (red, auth, cuota, formato) imprime un diagnóstico detallado
- * y devuelve [] para no romper la cola de subida.
+ * Una única llamada al SDK oficial @google/genai con timeout de 10 s.
+ * NUNCA lanza ni cuelga: ante cualquier error devuelve [] de inmediato.
  *
  * @param {File|Blob} imageFile
  * @returns {Promise<string[]>}
  */
 export async function detectDorsalsFromFile(imageFile) {
+  if (geminiDisabledReason) return [];
+
   const apiKey = getGeminiApiKey();
   if (!apiKey) {
-    console.warn('[aiService] VITE_GEMINI_API_KEY no configurada. Omitiendo detección automática de dorsales.');
+    geminiDisabledReason = 'sin API key';
+    console.warn('[aiService] VITE_GEMINI_API_KEY no configurada. Detección de dorsales deshabilitada.');
     return [];
   }
 
-  let model = null;
   try {
     const ai = getAiClient(apiKey);
     const { base64, mimeType } = await fileToBase64(imageFile);
-    model = await resolveGeminiModel(ai);
 
-    const request = {
-      model,
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { text: PROMPT_DORSALES },
-            { inlineData: { mimeType: mimeType || 'image/jpeg', data: base64 } },
-          ],
+    const response = await withTimeout(
+      (abortSignal) => ai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: PROMPT_DORSALES },
+              { inlineData: { mimeType: mimeType || 'image/jpeg', data: base64 } },
+            ],
+          },
+        ],
+        config: {
+          temperature: 0.1,
+          responseMimeType: 'application/json',
+          abortSignal,
         },
-      ],
-      config: {
-        temperature: 0.1,
-        responseMimeType: 'application/json',
-      },
-    };
+      }),
+      GEMINI_TIMEOUT_MS,
+    );
 
-    let response;
-    try {
-      response = await ai.models.generateContent(request);
-    } catch (err) {
-      // Si el modelo cacheado dejó de existir (404), redescubrir una vez y reintentar
-      if (describeGeminiError(err).status === 404 && !import.meta.env?.VITE_GEMINI_MODEL) {
-        console.warn(`[aiService] Modelo "${model}" no disponible (404). Redescubriendo modelos...`);
-        failedModels.add(model);
-        resolvedModelPromise = null;
-        model = await resolveGeminiModel(ai);
-        response = await ai.models.generateContent({ ...request, model });
-      } else {
-        throw err;
-      }
-    }
-
-    const rawText = response?.text ?? '';
-    if (!rawText) {
-      console.warn('[aiService] Gemini respondió sin texto.', {
-        model,
-        finishReason: response?.candidates?.[0]?.finishReason,
-        promptFeedback: response?.promptFeedback,
-      });
-      return [];
-    }
-
-    const dorsals = parseDorsalsResponse(rawText);
-    console.log(`[aiService] Gemini (${model}) detectó ${dorsals.length} dorsal(es):`, dorsals);
+    const dorsals = parseDorsalsResponse(response?.text ?? '');
+    console.log(`[aiService] Gemini (${GEMINI_MODEL}) detectó ${dorsals.length} dorsal(es):`, dorsals);
     return dorsals;
   } catch (err) {
-    console.error('[aiService] Error en detección de dorsales:', describeGeminiError(err, { model, file: imageFile?.name }));
+    const status = getErrorStatus(err);
+    if ([400, 401, 403, 404].includes(status)) {
+      // Error permanente: loguear una sola vez y no volver a intentar en esta sesión
+      geminiDisabledReason = `HTTP ${status}`;
+      console.error('[aiService] Gemini deshabilitado para esta sesión:', describeGeminiError(err, { file: imageFile?.name }));
+    } else {
+      console.error('[aiService] Error en detección de dorsales:', describeGeminiError(err, { file: imageFile?.name }));
+    }
     return [];
   }
 }
@@ -506,11 +464,26 @@ let analysisChain = Promise.resolve();
 /**
  * analyzeImageFile(file) → Promise<{ dorsals: string[], faceDescriptors: {vector:number[]}[] }>
  */
+const FACE_TIMEOUT_MS = 45000;
+
+/** Resuelve con `fallback` si la promesa no termina a tiempo o falla (nunca rechaza). */
+function settleWithin(promise, ms, fallback, label) {
+  let timer;
+  const timeout = new Promise(resolve => {
+    timer = setTimeout(() => {
+      console.warn(`[aiService] ${label} superó ${ms / 1000}s. Se continúa sin ese dato.`);
+      resolve(fallback);
+    }, ms);
+  });
+  return Promise.race([Promise.resolve(promise).catch(() => fallback), timeout]).finally(() => clearTimeout(timer));
+}
+
 export function analyzeImageFile(file) {
   const run = async () => {
+    // Fail-safe: ninguna de las dos tareas puede trabar la cola de subida
     const [dorsals, faceDescriptors] = await Promise.all([
-      detectDorsalsFromFile(file),
-      extractFaceDescriptors(file, { forAdmin: true }),
+      settleWithin(detectDorsalsFromFile(file), GEMINI_TIMEOUT_MS + 2000, [], 'Detección de dorsales'),
+      settleWithin(extractFaceDescriptors(file, { forAdmin: true }), FACE_TIMEOUT_MS, [], 'Detección de rostros'),
     ]);
     return { dorsals, faceDescriptors };
   };
