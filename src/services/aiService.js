@@ -6,18 +6,24 @@
  */
 
 /**
- * Convierte un File o Blob en base64 puro para Gemini Vision.
- * Si la foto original supera 1600px, la escala suavemente en memoria
+ * Convierte un File o Blob en base64 puro y su correspondiente MIME type para Gemini Vision.
+ * Si la foto original supera 1600px, la escala suavemente en memoria a JPEG
  * para evitar payloads gigantes (HTTP 413) y acelerar la respuesta de la API.
+ *
+ * @param {File|Blob} file
+ * @param {number} maxDimension
+ * @returns {Promise<{ base64: string, mimeType: string }>}
  */
 function fileToBase64(file, maxDimension = 1600) {
   return new Promise((resolve, reject) => {
-    if (!file.type || !file.type.startsWith('image/') || file.size < 500 * 1024) {
+    const rawMime = file.type || 'image/jpeg';
+
+    if (!file.type || !file.type.startsWith('image/') || file.size < 400 * 1024) {
       const reader = new FileReader();
       reader.onload = () => {
         const result = String(reader.result || '');
         const base64 = result.includes(',') ? result.split(',')[1] : result;
-        resolve(base64);
+        resolve({ base64, mimeType: rawMime });
       };
       reader.onerror = reject;
       reader.readAsDataURL(file);
@@ -32,12 +38,12 @@ function fileToBase64(file, maxDimension = 1600) {
         const nw = img.naturalWidth || img.width;
         const nh = img.naturalHeight || img.height;
 
-        if (nw <= maxDimension && nh <= maxDimension) {
+        if (nw <= maxDimension && nh <= maxDimension && file.size < 1.2 * 1024 * 1024) {
           const reader = new FileReader();
           reader.onload = () => {
             const result = String(reader.result || '');
             const base64 = result.includes(',') ? result.split(',')[1] : result;
-            resolve(base64);
+            resolve({ base64, mimeType: rawMime });
           };
           reader.onerror = reject;
           reader.readAsDataURL(file);
@@ -56,13 +62,13 @@ function fileToBase64(file, maxDimension = 1600) {
 
         const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
         const base64 = dataUrl.split(',')[1] || dataUrl;
-        resolve(base64);
+        resolve({ base64, mimeType: 'image/jpeg' });
       } catch {
         const reader = new FileReader();
         reader.onload = () => {
           const result = String(reader.result || '');
           const base64 = result.includes(',') ? result.split(',')[1] : result;
-          resolve(base64);
+          resolve({ base64, mimeType: rawMime });
         };
         reader.onerror = reject;
         reader.readAsDataURL(file);
@@ -74,7 +80,7 @@ function fileToBase64(file, maxDimension = 1600) {
       reader.onload = () => {
         const result = String(reader.result || '');
         const base64 = result.includes(',') ? result.split(',')[1] : result;
-        resolve(base64);
+        resolve({ base64, mimeType: rawMime });
       };
       reader.onerror = reject;
       reader.readAsDataURL(file);
@@ -100,13 +106,33 @@ function getGeminiApiKey() {
   return null;
 }
 
-const PROMPT_DORSALES = "Analiza esta foto deportiva. Extrae todos los números de dorsales o pecheras visibles en los competidores (ej. 923, 106, 462). Devuelve estrictamente un array JSON plano de strings con los números encontrados. Si no hay dorsales, devuelve [].";
+const PROMPT_DORSALES = 'Extrae todos los números de dorsales/pecheras visibles en esta imagen de running y devuélvelos en un array JSON de strings puro, ejemplo: ["1442", "1341"]. Si no hay dorsales visibles, devuelve [].';
 
 /**
- * Realiza la petición POST a la API de Google Generative Language.
+ * Realiza la petición POST a la API de Google Generative Language usando estrictamente gemini-1.5-flash.
  */
-async function callGeminiVision(base64Data, mimeType, apiKey, modelName = 'gemini-1.5-flash') {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(apiKey)}`;
+async function callGeminiVision(base64Data, mimeType, apiKey) {
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+  const payload = {
+    contents: [
+      {
+        parts: [
+          { text: PROMPT_DORSALES },
+          {
+            inline_data: {
+              mime_type: mimeType || 'image/jpeg',
+              data: base64Data,
+            },
+          },
+        ],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.1,
+      responseMimeType: 'application/json',
+    },
+  };
 
   return fetch(endpoint, {
     method: 'POST',
@@ -114,18 +140,7 @@ async function callGeminiVision(base64Data, mimeType, apiKey, modelName = 'gemin
       'Content-Type': 'application/json',
       'x-goog-api-key': apiKey,
     },
-    body: JSON.stringify({
-      contents: [{
-        parts: [
-          { text: PROMPT_DORSALES },
-          { inline_data: { mime_type: mimeType, data: base64Data } },
-        ],
-      }],
-      generationConfig: {
-        temperature: 0.1,
-        responseMimeType: 'application/json',
-      },
-    }),
+    body: JSON.stringify(payload),
   });
 }
 
@@ -145,21 +160,14 @@ export async function detectDorsalsFromFile(imageFile) {
       return [];
     }
 
-    const base64Data = await fileToBase64(imageFile);
-    const mimeType = imageFile.type || 'image/jpeg';
+    const { base64, mimeType } = await fileToBase64(imageFile);
 
-    // Modelo configurable por entorno (por defecto gemini-1.5-flash)
-    const targetModel = import.meta.env?.VITE_GEMINI_MODEL || 'gemini-1.5-flash';
-    let response = await callGeminiVision(base64Data, mimeType, apiKey, targetModel);
-
-    // Fallback directo a gemini-1.5-flash si se hubiese configurado otro y responde 404
-    if (response.status === 404 && targetModel !== 'gemini-1.5-flash') {
-      response = await callGeminiVision(base64Data, mimeType, apiKey, 'gemini-1.5-flash');
-    }
+    // Única llamada plana y directa usando estrictamente gemini-1.5-flash
+    const response = await callGeminiVision(base64, mimeType, apiKey);
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      console.warn(`[aiService] Gemini API (${targetModel}) respondió con estado ${response.status}:`, errorText);
+      console.error(`[aiService] Error en llamada a Gemini (HTTP ${response.status}):`, errorText);
       return [];
     }
 
@@ -173,7 +181,7 @@ export async function detectDorsalsFromFile(imageFile) {
       .replace(/```$/i, '')
       .trim();
 
-    let parsed;
+    let parsed = [];
     try {
       parsed = JSON.parse(cleanedText);
     } catch {
@@ -190,9 +198,10 @@ export async function detectDorsalsFromFile(imageFile) {
         .filter(v => v.length >= 1 && v.length <= 5 && !/^0+$/.test(v))
     )];
 
+    console.log(`[aiService] Gemini detectó ${dorsals.length} dorsal(es):`, dorsals);
     return dorsals;
   } catch (err) {
-    console.warn('[aiService] Error en detección de dorsales con Gemini Vision:', err.message || err);
+    console.error('[aiService] Error de red o ejecución en detección de dorsales con Gemini Vision:', err);
     return [];
   }
 }

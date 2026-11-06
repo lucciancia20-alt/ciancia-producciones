@@ -601,124 +601,137 @@ export default function AdminAlbums() {
                 const sizeMB  = (item.file.size / 1024 / 1024).toFixed(1);
 
                 return (
-                  <div key={item.id}
-                    className={`rounded-xl border p-3 transition-colors ${
+                  <div
+                    key={item.id}
+                    className={`rounded-2xl border p-4 transition-colors space-y-3 ${
                       item.status === 'done'  ? 'bg-green-900/15 border-green-500/30' :
                       item.status === 'error' ? 'bg-red-900/15   border-red-500/30'   :
                                                 'bg-dark-700     border-dark-500'
                     }`}
                   >
-                    <div className="flex gap-3 items-center">
-                      {/* Ícono tipo */}
-                      <div className="flex-shrink-0">
-                        {isVideo
-                          ? <Video  className="w-8 h-8 text-neon-green" />
-                          : <Camera className="w-8 h-8 text-blue-400"   />
-                        }
-                      </div>
-
-                      {/* Nombre + tamaño */}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-white text-sm font-medium truncate">{item.file.name}</p>
-                        <p className="text-gray-500 text-xs">{sizeMB} MB · {isVideo ? 'Video' : 'Imagen'}</p>
-
-                        {/* Barra de progreso */}
-                        {(item.status === 'uploading' || item.status === 'done') && (
-                          <div className="mt-2 h-1.5 rounded-full bg-dark-500 overflow-hidden">
-                            <div
-                              className={`h-full rounded-full transition-all duration-200 ${
-                                item.status === 'done' ? 'bg-green-400' : 'bg-neon-green'
-                              }`}
-                              style={{ width: `${item.progress}%` }}
-                            />
-                          </div>
-                        )}
-
-                        {/* Estado textual */}
-                        <div className="mt-1 text-xs flex flex-wrap items-center gap-x-3 gap-y-1">
-                          {item.status === 'idle'      && <span className="text-gray-500">En cola</span>}
-                          {item.status === 'waiting-ai' && <span className="text-yellow-400 animate-pulse">Esperando análisis IA…</span>}
-
-                          {/* Badge IA */}
-                          {item.aiStatus === 'analyzing' && (
-                            <span className="inline-flex items-center gap-1 text-yellow-300 bg-yellow-400/10 border border-yellow-400/30 px-2 py-0.5 rounded-full">
-                              <Loader2 className="w-3 h-3 animate-spin" /> Analizando dorsales y rostros con IA...
-                            </span>
-                          )}
-                          {item.aiStatus === 'done' && (
-                            <span className="inline-flex items-center gap-1.5 text-neon-green bg-neon-green/10 border border-neon-green/30 px-2 py-0.5 rounded-full">
-                              <Bot className="w-3 h-3" />
-                              {item.aiDorsals.length} dorsal{item.aiDorsals.length !== 1 ? 'es' : ''}
-                              <span className="opacity-50">·</span>
-                              <ScanFace className="w-3 h-3" />
-                              {item.faceDescriptors.length} rostro{item.faceDescriptors.length !== 1 ? 's' : ''}
-                            </span>
-                          )}
-                          {item.aiStatus === 'error' && (
-                            <span className="inline-flex items-center gap-1 text-orange-300 bg-orange-400/10 border border-orange-400/30 px-2 py-0.5 rounded-full">
-                              <AlertCircle className="w-3 h-3" /> Sin IA — cargá los dorsales a mano
-                            </span>
-                          )}
+                    {/* Fila 1: Ícono, Nombre del archivo, tamaño y botón eliminar */}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="flex-shrink-0 p-2 bg-dark-600 rounded-xl">
+                          {isVideo
+                            ? <Video  className="w-5 h-5 text-neon-green" />
+                            : <Camera className="w-5 h-5 text-blue-400"   />
+                          }
                         </div>
-                        <div className="mt-1 text-xs">
-                          {item.status === 'uploading' && <span className="text-neon-green animate-pulse">Subiendo a Cloudinary… {item.progress}%</span>}
-                          {item.status === 'done'      && (
-                            <span className="text-green-400 flex items-center gap-1">
-                              <CheckCircle2 className="w-3 h-3" />
-                              Subido correctamente
-                              {item.result?.publicId && (
-                                <a href={item.result.url} target="_blank" rel="noreferrer"
-                                  className="ml-2 text-blue-400 hover:underline" onClick={e => e.stopPropagation()}>
-                                  Ver en Cloudinary ↗
-                                </a>
-                              )}
-                            </span>
-                          )}
-                          {item.status === 'error' && (
-                            <span className="text-red-400 flex items-center gap-1">
-                              <AlertCircle className="w-3 h-3" /> {item.error}
-                            </span>
-                          )}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-white text-sm font-semibold truncate leading-tight">{item.file.name}</p>
+                          <p className="text-gray-400 text-xs mt-0.5">{sizeMB} MB · {isVideo ? 'Video' : 'Imagen'}</p>
                         </div>
                       </div>
 
-                      {/* Input dorsales (prellenado por IA, editable + botón limpiar) */}
-                      <div className="flex flex-col items-end flex-shrink-0">
-                        <div className="relative flex items-center">
-                          <input
-                            type="text"
-                            placeholder={item.aiStatus === 'analyzing' ? 'IA leyendo dorsales…' : 'Dorsales (ej: 101,102)'}
-                            value={item.dorsals}
-                            onChange={e => updateDorsals(item.id, e.target.value)}
-                            disabled={item.status === 'uploading' || item.status === 'done' || item.status === 'waiting-ai'}
-                            className={`input-dark text-sm py-1.5 pr-7 w-48 disabled:opacity-50 ${
-                              item.aiStatus === 'done' && !item.dorsalsTouched && item.dorsals ? 'border-neon-green/50' : ''
-                            }`}
-                          />
-                          {item.dorsals && item.status !== 'uploading' && item.status !== 'done' && (
-                            <button
-                              type="button"
-                              onClick={() => updateDorsals(item.id, '')}
-                              title="Limpiar dorsales"
-                              className="absolute right-2 text-gray-400 hover:text-red-400 transition-colors text-xs font-bold"
-                            >
-                              ✕
-                            </button>
-                          )}
-                        </div>
-                        {item.aiStatus === 'done' && !item.dorsalsTouched && item.dorsals && (
-                          <span className="text-[10px] text-neon-green/70 mt-0.5">Sugerido por IA · editable</span>
-                        )}
-                      </div>
-
-                      {/* Botón eliminar */}
                       <button
+                        type="button"
                         onClick={() => removeFile(item.id)}
                         disabled={item.status === 'uploading'}
-                        className="text-gray-500 hover:text-red-400 transition-colors disabled:opacity-30 flex-shrink-0"
+                        className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-dark-600 rounded-lg transition-colors disabled:opacity-30 flex-shrink-0"
+                        title="Quitar archivo"
                       >
                         <X className="w-4 h-4" />
                       </button>
+                    </div>
+
+                    {/* Barra de progreso de subida a Cloudinary */}
+                    {(item.status === 'uploading' || item.status === 'done') && (
+                      <div className="w-full h-1.5 rounded-full bg-dark-500 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-200 ${
+                            item.status === 'done' ? 'bg-green-400' : 'bg-neon-green'
+                          }`}
+                          style={{ width: `${item.progress}%` }}
+                        />
+                      </div>
+                    )}
+
+                    {/* Fila 2: Indicador rectangular alargado de IA / Estados */}
+                    <div className="w-full space-y-1.5">
+                      {item.aiStatus === 'analyzing' && (
+                        <div className="w-full flex items-center gap-2.5 text-xs text-yellow-300 bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-3.5 py-2.5 shadow-sm">
+                          <Loader2 className="w-4 h-4 animate-spin text-yellow-400 flex-shrink-0" />
+                          <span className="font-semibold tracking-wide">Analizando dorsales y rostros con IA...</span>
+                        </div>
+                      )}
+
+                      {item.aiStatus === 'done' && (
+                        <div className="w-full flex items-center justify-between gap-2 text-xs text-neon-green bg-neon-green/10 border border-neon-green/30 rounded-xl px-3.5 py-2 shadow-sm">
+                          <div className="flex items-center gap-2">
+                            <Bot className="w-4 h-4 flex-shrink-0" />
+                            <span className="font-bold">{item.aiDorsals.length} dorsal{item.aiDorsals.length !== 1 ? 'es' : ''}</span>
+                            <span className="opacity-40">·</span>
+                            <ScanFace className="w-4 h-4 flex-shrink-0" />
+                            <span className="font-semibold">{item.faceDescriptors.length} rostro{item.faceDescriptors.length !== 1 ? 's' : ''}</span>
+                          </div>
+                          {item.aiDorsals.length > 0 && (
+                            <span className="text-[11px] text-gray-400 font-mono hidden xs:inline">
+                              [{item.aiDorsals.join(', ')}]
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {item.aiStatus === 'error' && (
+                        <div className="w-full flex items-center gap-2 text-xs text-orange-300 bg-orange-500/10 border border-orange-500/30 rounded-xl px-3.5 py-2">
+                          <AlertCircle className="w-4 h-4 text-orange-400 flex-shrink-0" />
+                          <span>Sin IA — podés ingresar los dorsales manualmente</span>
+                        </div>
+                      )}
+
+                      {item.status === 'uploading' && (
+                        <p className="text-xs text-neon-green animate-pulse font-medium">Subiendo a Cloudinary… {item.progress}%</p>
+                      )}
+
+                      {item.status === 'done' && (
+                        <div className="text-xs text-green-400 flex items-center gap-1.5 font-medium">
+                          <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                          <span>Subido correctamente</span>
+                          {item.result?.publicId && (
+                            <a href={item.result.url} target="_blank" rel="noreferrer"
+                              className="ml-2 text-blue-400 hover:underline" onClick={e => e.stopPropagation()}>
+                              Ver en Cloudinary ↗
+                            </a>
+                          )}
+                        </div>
+                      )}
+
+                      {item.status === 'error' && (
+                        <div className="text-xs text-red-400 flex items-center gap-1.5 font-medium">
+                          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                          <span>{item.error}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Fila 3: Input de dorsales con ancho completo */}
+                    <div className="w-full pt-0.5">
+                      <div className="relative flex items-center">
+                        <input
+                          type="text"
+                          placeholder={item.aiStatus === 'analyzing' ? 'IA leyendo dorsales…' : 'Dorsales (ej: 101, 102)'}
+                          value={item.dorsals}
+                          onChange={e => updateDorsals(item.id, e.target.value)}
+                          disabled={item.status === 'uploading' || item.status === 'done' || item.status === 'waiting-ai'}
+                          className={`input-dark text-sm py-2 px-3 pr-8 w-full font-mono disabled:opacity-50 ${
+                            item.aiStatus === 'done' && !item.dorsalsTouched && item.dorsals ? 'border-neon-green/60 ring-1 ring-neon-green/30' : ''
+                          }`}
+                        />
+                        {item.dorsals && item.status !== 'uploading' && item.status !== 'done' && (
+                          <button
+                            type="button"
+                            onClick={() => updateDorsals(item.id, '')}
+                            title="Limpiar dorsales"
+                            className="absolute right-2 text-gray-400 hover:text-red-400 transition-colors text-xs font-bold p-1"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                      {item.aiStatus === 'done' && !item.dorsalsTouched && item.dorsals && (
+                        <p className="text-[11px] text-neon-green/80 mt-1 pl-1">✓ Dorsales detectados automáticamente por IA (editables)</p>
+                      )}
                     </div>
                   </div>
                 );
