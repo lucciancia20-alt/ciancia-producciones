@@ -77,24 +77,22 @@ export function AuthProvider({ children }) {
     const cleanEmail = String(email || '').trim();
     const cleanPass  = String(password || '');
 
-    try {
-      const cred = await signInWithEmailAndPassword(auth, cleanEmail, cleanPass);
-      return cred;
-    } catch (firebaseErr) {
-      if (
-        cleanEmail.toLowerCase() === DEV_ADMIN_EMAIL &&
-        cleanPass === DEV_ADMIN_PASS
-      ) {
-        try {
-          localStorage.setItem(DEV_KEY, '1');
-        } catch {
-          // ignore storage errors
-        }
-        setUser(DEV_USER);
-        return { user: DEV_USER, isFallback: true };
+    // Verificación directa del administrador principal
+    if (
+      cleanEmail.toLowerCase() === DEV_ADMIN_EMAIL &&
+      cleanPass === DEV_ADMIN_PASS
+    ) {
+      try {
+        localStorage.setItem(DEV_KEY, '1');
+      } catch {
+        // ignore storage errors
       }
-      throw firebaseErr;
+      setUser(DEV_USER);
+      return { user: DEV_USER, isFallback: true };
     }
+
+    const cred = await signInWithEmailAndPassword(auth, cleanEmail, cleanPass);
+    return cred;
   };
 
   const loginWithGoogle = () => {

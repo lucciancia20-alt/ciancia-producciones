@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ShoppingCart, Camera, Menu, X, Zap } from 'lucide-react';
+import { ShoppingCart, Camera, Menu, X, Lock } from 'lucide-react';
 import { useCart } from '../context/CartContext';
+import { useAuth } from '../context/AuthContext';
 
 export default function Navbar() {
   const { itemCount } = useCart();
+  const { user } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const navigate = useNavigate();
 
@@ -28,9 +30,11 @@ export default function Navbar() {
             <Link to="/" className="text-gray-300 hover:text-neon-green transition-colors font-medium text-sm">
               Álbumes
             </Link>
-            <Link to="/admin" className="text-gray-300 hover:text-neon-green transition-colors font-medium text-sm">
-              Admin
-            </Link>
+            {user && (
+              <Link to="/admin" className="text-neon-green hover:underline transition-colors font-bold text-sm flex items-center gap-1">
+                <Lock className="w-3.5 h-3.5" /> Panel Admin
+              </Link>
+            )}
           </div>
 
           {/* Cart + hamburger */}
@@ -67,13 +71,15 @@ export default function Navbar() {
             >
               Álbumes
             </Link>
-            <Link
-              to="/admin"
-              className="block px-4 py-2 text-gray-300 hover:text-neon-green transition-colors"
-              onClick={() => setMenuOpen(false)}
-            >
-              Panel Admin
-            </Link>
+            {user && (
+              <Link
+                to="/admin"
+                className="block px-4 py-2 text-neon-green font-bold transition-colors"
+                onClick={() => setMenuOpen(false)}
+              >
+                Panel Admin
+              </Link>
+            )}
           </div>
         )}
       </div>

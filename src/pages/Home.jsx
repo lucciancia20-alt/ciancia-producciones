@@ -897,6 +897,20 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {/* Footer discreto con acceso privado para administración */}
+      <footer className="border-t border-dark-700 py-8 px-4 mt-12">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-gray-500">
+          <p>© {new Date().getFullYear()} Ciancia Producciones · Fotografía deportiva profesional</p>
+          <Link
+            to="/admin"
+            className="text-gray-600 hover:text-gray-400 transition-colors"
+            title="Acceso exclusivo administración"
+          >
+            Acceso Admin
+          </Link>
+        </div>
+      </footer>
     </div>
   );
 }

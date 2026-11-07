@@ -2,7 +2,7 @@
  * notificationService.js — Ciancia Producciones
  * 1. Sonido de alerta en vivo (Web Audio API, sin archivos externos)
  * 2. Notificaciones nativas del navegador / celular (Notification API)
- * 3. Envío automático de email al administrador en cada compra (FormSubmit AJAX)
+ * 3. Envío automático de email al administrador en cada compra (Web3Forms + respaldo FormSubmit)
  */
 
 const DEFAULT_ADMIN_EMAIL = 'lucciancia20@gmail.com';
@@ -34,7 +34,6 @@ export function playNewOrderSound() {
     };
 
     const now = ctx.currentTime;
-    // Dos notas ascendentes limpias (Mi6 -> Si6) estilo alerta de venta
     playTone(1318.5, now, 0.22, 0.2);
     playTone(1975.5, now + 0.16, 0.45, 0.24);
 
@@ -42,7 +41,7 @@ export function playNewOrderSound() {
       try { ctx.close(); } catch { /* noop */ }
     }, 900);
   } catch {
-    // El navegador puede bloquear audio si aún no hubo interacción previa en la pestaña
+    // noop
   }
 }
 
@@ -90,49 +89,108 @@ export function showBrowserOrderNotification(order) {
 }
 
 /**
- * Envía un email automático al administrador con todos los detalles de la compra
- * utilizando FormSubmit AJAX (100% gratuito y sin backend).
+ * Envía un email automático al administrador con todos los detalles de la compra.
+ * Soporta:
+ *   1. Web3Forms (https://api.web3forms.com/submit) si `web3formsKey` está configurado (100% instantáneo).
+ *   2. FormSubmit AJAX como alternativa si el email fue activado previamente.
  *
  * @param {object} order Datos de la orden guardada en Firestore
  * @param {string} orderId ID del documento en Firestore
- * @param {string} [adminEmail] Email receptor (por defecto lucciancia20@gmail.com)
+ * @param {string|object} [configOrEmail] Email o config { notifyEmail, web3formsKey }
+ * @returns {Promise<{ ok: boolean, message?: string }>}
  */
-export async function sendOrderEmailNotification(order, orderId, adminEmail) {
-  const targetEmail = String(adminEmail || DEFAULT_ADMIN_EMAIL).trim() || DEFAULT_ADMIN_EMAIL;
+export async function sendOrderEmailNotification(order, orderId, configOrEmail) {
+  const isObj = configOrEmail && typeof configOrEmail === 'object';
+  const targetEmail = String(
+    (isObj ? configOrEmail.notifyEmail : configOrEmail) || DEFAULT_ADMIN_EMAIL
+  ).trim() || DEFAULT_ADMIN_EMAIL;
+  const web3formsKey = String(
+    (isObj ? configOrEmail.web3formsKey : '') || import.meta.env?.VITE_WEB3FORMS_KEY || ''
+  ).trim();
+
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://ciancia-producciones.onrender.com';
 
   const itemsSummary = (order?.items || [])
     .map((it, idx) => `${idx + 1}. ${it.fileName || it.id} ($${Number(it.price || 0).toLocaleString('es-AR')})`)
     .join('\n');
 
-  const payload = {
-    _subject: `📸 Nueva compra $${Number(order?.total || 0).toLocaleString('es-AR')} - ${order?.cliente?.nombre || 'Cliente'}`,
-    _template: 'table',
-    _captcha: 'false',
-    Codigo_Pedido: orderId || '-',
-    Cliente: order?.cliente?.nombre || '-',
-    Email_Cliente: order?.cliente?.email || '-',
-    Telefono_WhatsApp: order?.cliente?.telefono || 'No informado',
-    Metodo_de_Pago: order?.paymentMethod === 'transfer' ? 'Transferencia Bancaria' : 'Mercado Pago',
-    Total_Pagado: `$${Number(order?.total || 0).toLocaleString('es-AR')}`,
-    Cantidad_Archivos: String(order?.items?.length || 0),
-    Detalle_Archivos: itemsSummary || '-',
-    Comprobante_Adjunto: order?.voucherUrl ? order.voucherUrl : 'Sin comprobante adjunto',
-    Administrar_Orden: `${origin}/admin/orders`,
-  };
+  const subject = `📸 Nueva compra $${Number(order?.total || 0).toLocaleString('es-AR')} - ${order?.cliente?.nombre || 'Cliente'}`;
 
+  // 1) Si hay clave de Web3Forms configurada, usamos Web3Forms (entrega inmediata sin redirección)
+  if (web3formsKey) {
+    try {
+      const res = await fetch('https://api.web3forms.com/submit', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          access_key: web3formsKey,
+          subject,
+          from_name: 'Ciancia Producciones',
+          Codigo_Pedido: orderId || '-',
+          Cliente: order?.cliente?.nombre || '-',
+          Email_Cliente: order?.cliente?.email || '-',
+          Telefono_WhatsApp: order?.cliente?.telefono || 'No informado',
+          Metodo_de_Pago: order?.paymentMethod === 'transfer' ? 'Transferencia Bancaria' : 'Mercado Pago',
+          Total_Pagado: `$${Number(order?.total || 0).toLocaleString('es-AR')}`,
+          Cantidad_Archivos: String(order?.items?.length || 0),
+          Detalle_Archivos: itemsSummary || '-',
+          Comprobante_Adjunto: order?.voucherUrl ? order.voucherUrl : 'Sin comprobante adjunto',
+          Link_Panel_Ordenes: `${origin}/admin/orders`,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.success) {
+        return { ok: true, message: 'Email enviado correctamente vía Web3Forms.' };
+      }
+      return { ok: false, message: data?.message || `Error HTTP ${res.status} en Web3Forms.` };
+    } catch (err) {
+      return { ok: false, message: 'No se pudo conectar con Web3Forms: ' + (err?.message || err) };
+    }
+  }
+
+  // 2) Respaldo FormSubmit AJAX
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
     const res = await fetch(`https://formsubmit.co/ajax/${encodeURIComponent(targetEmail)}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
       },
-      body: JSON.stringify(payload),
-    });
-    return await res.json().catch(() => ({ ok: res.ok }));
-  } catch (err) {
-    console.warn('[notificationService] No se pudo enviar el aviso por email:', err?.message || err);
-    return null;
+      signal: controller.signal,
+      body: JSON.stringify({
+        _subject: subject,
+        _template: 'table',
+        _captcha: 'false',
+        Codigo_Pedido: orderId || '-',
+        Cliente: order?.cliente?.nombre || '-',
+        Email_Cliente: order?.cliente?.email || '-',
+        Telefono_WhatsApp: order?.cliente?.telefono || 'No informado',
+        Metodo_de_Pago: order?.paymentMethod === 'transfer' ? 'Transferencia Bancaria' : 'Mercado Pago',
+        Total_Pagado: `$${Number(order?.total || 0).toLocaleString('es-AR')}`,
+        Cantidad_Archivos: String(order?.items?.length || 0),
+        Detalle_Archivos: itemsSummary || '-',
+        Comprobante_Adjunto: order?.voucherUrl ? order.voucherUrl : 'Sin comprobante adjunto',
+        Administrar_Orden: `${origin}/admin/orders`,
+      }),
+    }).finally(() => clearTimeout(timer));
+
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && (data?.success === true || data?.success === 'true')) {
+      return { ok: true, message: 'Email enviado vía FormSubmit.' };
+    }
+    return {
+      ok: false,
+      message: data?.message || 'El servidor gratuito FormSubmit está demorado o requiere que pegues tu Access Key gratuita de Web3Forms.',
+    };
+  } catch {
+    return {
+      ok: false,
+      message: 'El servidor de FormSubmit no respondió a tiempo. Para envío instantáneo 100% seguro, generá en 5 segundos tu clave gratuita en web3forms.com y pegala abajo.',
+    };
   }
 }

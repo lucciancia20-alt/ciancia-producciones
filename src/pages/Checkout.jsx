@@ -161,7 +161,7 @@ export default function Checkout() {
 
       const docRef = await addDoc(collection(db, 'orders'), order);
       // Disparar notificación automática por email al administrador (no bloqueante)
-      sendOrderEmailNotification(order, docRef.id, payConfig?.notifyEmail).catch(() => {});
+      sendOrderEmailNotification(order, docRef.id, payConfig).catch(() => {});
       setCreatedOrderId(docRef.id);
       clearCart();
       setSuccess(true);
