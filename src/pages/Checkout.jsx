@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { getPaymentConfig } from '../firebase/paymentConfig';
 import { uploadToCloudinary } from '../services/cloudinary';
+import { sendOrderEmailNotification } from '../services/notificationService';
 
 function formatPrice(n) {
   return `$${n.toLocaleString('es-AR')}`;
@@ -159,6 +160,8 @@ export default function Checkout() {
       };
 
       const docRef = await addDoc(collection(db, 'orders'), order);
+      // Disparar notificación automática por email al administrador (no bloqueante)
+      sendOrderEmailNotification(order, docRef.id, payConfig?.notifyEmail).catch(() => {});
       setCreatedOrderId(docRef.id);
       clearCart();
       setSuccess(true);

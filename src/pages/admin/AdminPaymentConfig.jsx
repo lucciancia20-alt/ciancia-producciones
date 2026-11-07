@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Save, CheckCircle, Loader2, CreditCard, Banknote, Tag } from 'lucide-react';
+import { ArrowLeft, Save, CheckCircle, Loader2, CreditCard, Banknote, Tag, Bell, Mail } from 'lucide-react';
 import { getPaymentConfig, savePaymentConfig } from '../../firebase/paymentConfig';
+import { sendOrderEmailNotification } from '../../services/notificationService';
 
 const FIELD_LABELS = {
   titular:   'Titular de la cuenta',
@@ -24,12 +25,14 @@ const FIELD_PLACEHOLDERS = {
 export default function AdminPaymentConfig() {
   const [form, setForm] = useState({
     titular: '', banco: '', cbu: '', alias: '', mpCelular: '', mpAlias: '',
-    defaultPricePhoto: 2000, defaultPriceVideo: 3000,
+    defaultPricePhoto: 2000, defaultPriceVideo: 3000, notifyEmail: 'lucciancia20@gmail.com',
   });
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);
   const [saved, setSaved]       = useState(false);
   const [error, setError]       = useState('');
+  const [testingEmail, setTestingEmail] = useState(false);
+  const [testEmailStatus, setTestEmailStatus] = useState('');
 
   /* ── Carga inicial ── */
   useEffect(() => {
@@ -158,6 +161,69 @@ export default function AdminPaymentConfig() {
                   />
                 </div>
               </div>
+            </div>
+
+            {/* Notificaciones de compras por Email */}
+            <div className="card-dark p-6 space-y-4 border-neon-green/30">
+              <h2 className="font-bold text-white flex items-center gap-2 text-lg">
+                <Bell className="w-5 h-5 text-neon-green" />
+                Notificaciones de Nuevas Compras (Gmail)
+              </h2>
+              <p className="text-gray-400 text-xs leading-relaxed">
+                Cada vez que un cliente realice una compra en el Checkout, recibirás automáticamente un correo en esta dirección con sus datos, el monto, los archivos y el link al comprobante.
+                <br />
+                <span className="text-yellow-300/90 font-medium">
+                  💡 Importante: La primera vez que toques "Enviar email de prueba", revisá tu bandeja de entrada (o Spam) de Gmail y hacé clic en el botón "Activate Form" que envía FormSubmit para dejarlo activado para siempre.
+                </span>
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-end">
+                <div className="flex-1">
+                  <label className="text-sm text-gray-400 mb-1 block">Email donde recibir avisos de compra</label>
+                  <input
+                    type="email"
+                    name="notifyEmail"
+                    value={form.notifyEmail || ''}
+                    onChange={handleChange}
+                    placeholder="lucciancia20@gmail.com"
+                    className="input-dark"
+                    autoComplete="off"
+                  />
+                </div>
+                <button
+                  type="button"
+                  disabled={testingEmail}
+                  onClick={async () => {
+                    setTestingEmail(true);
+                    setTestEmailStatus('');
+                    try {
+                      await sendOrderEmailNotification(
+                        {
+                          cliente: { nombre: 'Compra de Prueba', email: 'cliente@ejemplo.com', telefono: '+54 9 291 000-0000' },
+                          paymentMethod: 'transfer',
+                          total: 4000,
+                          items: [{ fileName: 'foto-ejemplo-1.jpg', price: 2000 }, { fileName: 'foto-ejemplo-2.jpg', price: 2000 }],
+                        },
+                        'TEST-ORDEN-001',
+                        form.notifyEmail || 'lucciancia20@gmail.com'
+                      );
+                      setTestEmailStatus('✅ Correo de prueba enviado. Revisá tu Gmail (y la carpeta Spam la primera vez para confirmar la activación).');
+                    } catch {
+                      setTestEmailStatus('⚠️ No se pudo enviar el correo de prueba.');
+                    } finally {
+                      setTestingEmail(false);
+                    }
+                  }}
+                  className="btn-outline-neon text-xs py-2.5 px-4 flex items-center justify-center gap-2 whitespace-nowrap"
+                >
+                  {testingEmail ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                  Enviar email de prueba
+                </button>
+              </div>
+              {testEmailStatus && (
+                <p className="text-xs text-neon-green bg-neon-green/10 border border-neon-green/30 rounded-lg px-3 py-2">
+                  {testEmailStatus}
+                </p>
+              )}
             </div>
 
             {/* Feedback */}

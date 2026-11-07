@@ -16,6 +16,7 @@ const DEFAULTS = {
   mpAlias: '',
   defaultPricePhoto: 2000,
   defaultPriceVideo: 3000,
+  notifyEmail: 'lucciancia20@gmail.com',
 };
 
 /**

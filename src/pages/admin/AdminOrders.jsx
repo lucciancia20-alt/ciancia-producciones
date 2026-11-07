@@ -1,11 +1,16 @@
-import React, { useEffect, useState } from 'react';
-import { collection, getDocs, query, orderBy, updateDoc, deleteDoc, doc } from 'firebase/firestore';
+import React, { useEffect, useState, useRef } from 'react';
+import { collection, onSnapshot, query, orderBy, updateDoc, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { Link } from 'react-router-dom';
 import {
   ArrowLeft, CheckCircle2, Clock, Eye, ExternalLink, Loader2, Package, XCircle,
-  Trash2, Camera, MessageCircle, Copy, Check
+  Trash2, Camera, MessageCircle, Copy, Check, Bell, X
 } from 'lucide-react';
+import {
+  playNewOrderSound,
+  requestBrowserNotificationPermission,
+  showBrowserOrderNotification,
+} from '../../services/notificationService';
 
 function formatPrice(n) {
   return `$${(n || 0).toLocaleString('es-AR')}`;
@@ -46,16 +51,36 @@ export default function AdminOrders() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [approvingId, setApprovingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [liveAlertOrder, setLiveAlertOrder] = useState(null);
+  const [notifPerm, setNotifPerm] = useState(() => (typeof window !== 'undefined' && 'Notification' in window) ? Notification.permission : 'unsupported');
+  const initialOrdersLoadedRef = useRef(false);
 
   useEffect(() => {
-    async function load() {
-      try {
-        const snap = await getDocs(query(collection(db, 'orders'), orderBy('createdAt', 'desc')));
+    const qOrders = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
+    const unsub = onSnapshot(
+      qOrders,
+      (snap) => {
         setOrders(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      } catch (e) { console.error(e); }
-      finally { setLoading(false); }
-    }
-    load();
+        setLoading(false);
+
+        if (initialOrdersLoadedRef.current) {
+          const added = snap.docChanges().filter(ch => ch.type === 'added');
+          if (added.length > 0) {
+            const newest = { id: added[0].doc.id, ...added[0].doc.data() };
+            playNewOrderSound();
+            showBrowserOrderNotification(newest);
+            setLiveAlertOrder(newest);
+          }
+        } else {
+          initialOrdersLoadedRef.current = true;
+        }
+      },
+      (err) => {
+        console.error('[AdminOrders] Error en suscripción de órdenes:', err);
+        setLoading(false);
+      }
+    );
+    return () => unsub();
   }, []);
 
   const handleApprove = async (orderId) => {
@@ -116,6 +141,24 @@ export default function AdminOrders() {
             <span>Gestionar Álbumes</span>
           </Link>
 
+          <button
+            type="button"
+            onClick={async () => {
+              playNewOrderSound();
+              const res = await requestBrowserNotificationPermission();
+              setNotifPerm(res);
+            }}
+            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border text-xs font-semibold transition-all ${
+              notifPerm === 'granted'
+                ? 'bg-neon-green/10 border-neon-green/40 text-neon-green'
+                : 'bg-dark-800 border-dark-600 text-gray-300 hover:border-neon-green/50 hover:text-neon-green'
+            }`}
+            title="Probar sonido y activar notificaciones del navegador en cada compra"
+          >
+            <Bell className="w-3.5 h-3.5" />
+            <span>{notifPerm === 'granted' ? 'Alertas en vivo activas' : 'Activar alertas y sonido'}</span>
+          </button>
+
           <Link
             to="/"
             className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-dark-800 border border-dark-600 text-gray-300 hover:text-neon-green hover:border-neon-green/50 transition-all text-sm font-semibold shadow-sm ml-auto"
@@ -125,6 +168,52 @@ export default function AdminOrders() {
             <ExternalLink className="w-3.5 h-3.5" />
           </Link>
         </div>
+
+        {/* Cartel emergente en vivo (Toast) cuando entra una compra */}
+        {liveAlertOrder && (
+          <div className="fixed top-5 right-5 z-50 max-w-sm w-full bg-dark-800 border-2 border-neon-green rounded-2xl p-4 shadow-neon animate-bounce">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-neon-green text-black flex items-center justify-center flex-shrink-0">
+                  <Bell className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-extrabold uppercase tracking-wider text-neon-green">¡Nueva compra recibida!</p>
+                  <p className="text-white font-bold text-sm">{liveAlertOrder.cliente?.nombre || 'Cliente'}</p>
+                  <p className="text-gray-300 text-xs">
+                    {formatPrice(liveAlertOrder.total)} · {liveAlertOrder.items?.length || 1} archivo(s)
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLiveAlertOrder(null)}
+                className="text-gray-400 hover:text-white p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedOrder(liveAlertOrder);
+                  setLiveAlertOrder(null);
+                }}
+                className="btn-neon text-xs py-1.5 px-3 flex-1"
+              >
+                Ver pedido ahora
+              </button>
+              <button
+                type="button"
+                onClick={() => setLiveAlertOrder(null)}
+                className="btn-outline-neon text-xs py-1.5 px-3"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-3xl font-black text-white">
