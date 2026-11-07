@@ -1,7 +1,9 @@
 /**
  * aiService.js — Ciancia Producciones
  * Client-side AI:
- *   1. Lectura de dorsales deportivos (SDK oficial @google/genai + Gemini Flash vigente)
+ *   1. Lectura de dorsales deportivos (SDK oficial @google/genai en endpoint estable v1)
+ *      con cola secuencial (1 por vez), pausa de 3.5s (Rate Limit Throttling) y
+ *      máximo 1 reintento limpio con la API Key de respaldo tras 4s de backoff.
  *   2. Reconocimiento Facial (@vladmandic/face-api con serialización plana para Firestore)
  */
 
@@ -9,8 +11,7 @@ import { GoogleGenAI } from '@google/genai';
 
 /**
  * Convierte un File o Blob en base64 puro y su correspondiente MIME type para Gemini Vision.
- * Si la foto original supera 1600px, la escala suavemente en memoria a JPEG
- * para evitar payloads gigantes (HTTP 413) y acelerar la respuesta de la API.
+ * Escala imágenes grandes en memoria a máx 1280px JPEG (calidad 0.85) para respuestas rápidas.
  *
  * @param {File|Blob} file
  * @param {number} maxDimension
@@ -78,18 +79,18 @@ function fileToBase64(file, maxDimension = 1280) {
 
 /**
  * Obtiene la lista de API Keys de Google Gemini disponibles:
- * 1. VITE_GEMINI_API_KEY (admite una key o varias separadas por coma)
- * 2. VITE_GEMINI_API_KEY_BACKUP (opcional: segunda key de respaldo)
+ * 1. VITE_GEMINI_API_KEY (principal)
+ * 2. VITE_GEMINI_API_KEY_BACKUP (respaldo)
  * 3. localStorage ('ciancia_gemini_api_key')
  */
 function getGeminiApiKeys() {
   const keys = [];
   try {
-    const envMain = import.meta.env?.VITE_GEMINI_API_KEY;
+    const envMain = import.meta.env.VITE_GEMINI_API_KEY;
     if (envMain) {
       String(envMain).split(',').map(k => k.trim()).filter(Boolean).forEach(k => keys.push(k));
     }
-    const envBackup = import.meta.env?.VITE_GEMINI_API_KEY_BACKUP;
+    const envBackup = import.meta.env.VITE_GEMINI_API_KEY_BACKUP;
     if (envBackup && String(envBackup).trim()) {
       keys.push(String(envBackup).trim());
     }
@@ -105,38 +106,34 @@ function getGeminiApiKeys() {
 
 const PROMPT_DORSALES = 'Extrae todos los números de dorsales/pecheras visibles en esta imagen de running y devuélvelos en un array JSON de strings puro, ejemplo: ["1442", "1341"]. Si no hay dorsales visibles, devuelve [].';
 
-/**
- * Pool de modelos alternativos en v1beta con servidores independientes.
- * Si el primero está saturado (503), sin cuota (429) o demora (>8s), el sistema
- * conmuta automáticamente al siguiente modelo en el acto sin perder la foto.
- */
-const DEFAULT_MODEL_POOL = [
-  'gemini-flash-latest',
-  'gemini-flash-lite-latest',
-  'gemini-2.0-flash',
-  'gemini-pro-latest',
-];
-
-function getModelPool() {
-  const custom = import.meta.env?.VITE_GEMINI_MODEL && String(import.meta.env.VITE_GEMINI_MODEL).trim();
-  return custom ? [...new Set([custom, ...DEFAULT_MODEL_POOL])] : DEFAULT_MODEL_POOL;
-}
-
-const GEMINI_TIMEOUT_MS = 8500; // timeout ágil por intento para conmutar rápido al backup
-const COOLDOWN_MS       = 60000; // 60s de enfriamiento para un modelo que dio 503/429/timeout
+// Único modelo directo y ultra-rápido habilitado en el endpoint oficial v1 de Google AI Studio (~1.4s por foto, sin 404)
+const GEMINI_MODEL       = 'gemini-3.5-flash-lite';
+const GEMINI_API_VERSION = 'v1';
+const GEMINI_TIMEOUT_MS  = 10000; // Timeout estricto de 10 segundos por petición
+const THROTTLE_DELAY_MS  = 3500;  // Pausa mínima de 3.5s entre llamadas para no exceder jamás el límite RPM gratuito
+const BACKOFF_429_MS     = 4500;  // Espera de 4.5s antes de hacer el único reintento con la API Key de respaldo
 
 const aiClients = new Map();
-const deadModels = new Set();         // modelos con 404 permanente
-const deadKeys   = new Set();         // keys con 400/401/403
-const modelCooldownUntil = new Map(); // model -> timestamp hasta cuando evitarlo por 503
-const keyCooldownUntil   = new Map(); // apiKey -> timestamp hasta cuando evitarla por 429
-let keyRoundRobinCounter = 0;         // balanceador activo 50/50 entre claves disponibles
+let preferredKeyIndex = 0;
+let lastGeminiCallEnd = 0;
 
 function getAiClient(apiKey) {
   if (!aiClients.has(apiKey)) {
-    aiClients.set(apiKey, new GoogleGenAI({ apiKey, apiVersion: 'v1beta' }));
+    aiClients.set(apiKey, new GoogleGenAI({ apiKey, apiVersion: GEMINI_API_VERSION }));
   }
   return aiClients.get(apiKey);
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/** Garantiza al menos `minDelayMs` entre el fin de una llamada a Gemini y el inicio de la siguiente. */
+async function waitRateLimitSlot(minDelayMs = THROTTLE_DELAY_MS) {
+  const elapsed = Date.now() - lastGeminiCallEnd;
+  if (lastGeminiCallEnd > 0 && elapsed < minDelayMs) {
+    await sleep(minDelayMs - elapsed);
+  }
 }
 
 /** Extrae el código HTTP de un error del SDK (si lo hay). */
@@ -144,29 +141,6 @@ function getErrorStatus(err) {
   if (typeof err?.status === 'number') return err.status;
   const m = String(err?.message || '').match(/\b(400|401|403|404|429|500|503)\b/);
   return m ? Number(m[1]) : undefined;
-}
-
-/** Arma un objeto de error descriptivo para diagnóstico en consola. */
-function describeGeminiError(err, context = {}) {
-  const status = getErrorStatus(err);
-  const hints = {
-    400: 'Solicitud inválida o API key con formato incorrecto. Revisá VITE_GEMINI_API_KEY.',
-    401: 'API key inválida o no autorizada.',
-    403: 'API key sin permisos o restringida por dominio.',
-    404: 'El modelo consultado no está habilitado para esta key.',
-    429: 'Cuota excedida (rate limit). Conmutando a respaldo.',
-    500: 'Error interno de Google. Conmutando a respaldo.',
-    503: 'Modelo sobrecargado en Google (503). Conmutando automáticamente a modelo alternativo.',
-  };
-  return {
-    service: 'Gemini Vision (dorsales)',
-    status,
-    hint: err?.name === 'TimeoutError'
-      ? `Tiempo agotado (${GEMINI_TIMEOUT_MS / 1000}s). Conmutando a modelo alternativo.`
-      : hints[status] || (err instanceof TypeError ? 'Fallo de red / CORS / sin conexión.' : 'Ver mensaje original.'),
-    message: String(err?.message || err || 'Error desconocido'),
-    ...context,
-  };
 }
 
 /** Rechaza la promesa si no resuelve dentro de `ms` (y aborta la petición). */
@@ -202,13 +176,11 @@ export function parseDorsalsResponse(rawText) {
     }
   }
 
-  // Tolerar formatos { dorsales: [...] } o { dorsals: [...] }
   if (parsed && !Array.isArray(parsed) && typeof parsed === 'object') {
     parsed = parsed.dorsales || parsed.dorsals || parsed.numbers || [];
   }
   if (!Array.isArray(parsed)) return [];
 
-  // Normalizar a strings de 1 a 5 dígitos, sin ceros puros, únicos
   return [...new Set(
     parsed
       .map(v => String(v ?? '').replace(/\D/g, '').trim())
@@ -217,141 +189,106 @@ export function parseDorsalsResponse(rawText) {
 }
 
 /**
+ * Ejecuta una única consulta al endpoint v1 con una API Key específica.
+ */
+async function callGeminiOnce(apiKey, base64, mimeType) {
+  const ai = getAiClient(apiKey);
+  const response = await withTimeout(
+    (abortSignal) => ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: PROMPT_DORSALES },
+            { inlineData: { mimeType: mimeType || 'image/jpeg', data: base64 } },
+          ],
+        },
+      ],
+      config: {
+        temperature: 0.1,
+        maxOutputTokens: 150,
+        abortSignal,
+      },
+    }),
+    GEMINI_TIMEOUT_MS,
+  );
+  return parseDorsalsResponse(response?.text ?? '');
+}
+
+/**
  * detectDorsalsFromFile(imageFile)
- * Conmutación automática (failover) entre varios modelos de Gemini (y API keys si hay más de una).
- * Si el modelo principal devuelve 503 (saturado), 429 (cuota), 404 o timeout, salta en el acto
- * al modelo alternativo (ej. gemini-flash-lite-latest -> gemini-2.0-flash -> gemini-pro-latest)
- * y recuerda cuál está funcionando para no demorar las fotos siguientes.
+ * - Respeta una pausa obligatoria (THROTTLE_DELAY_MS = 3.5s) antes de consultar a Gemini.
+ * - Intenta con la API Key activa.
+ * - Si falla (429, 503, 404 o timeout) y existe una 2da API Key de respaldo,
+ *   espera 4.5s (backoff), rota a la clave de respaldo y realiza UN ÚNICO reintento limpio.
+ * - Si vuelve a fallar, registra el aviso una sola vez y retorna `[]` sin bloquear la subida.
  *
  * @param {File|Blob} imageFile
  * @returns {Promise<string[]>}
  */
 export async function detectDorsalsFromFile(imageFile) {
-  const allKeys = getGeminiApiKeys().filter(k => !deadKeys.has(k));
-  if (allKeys.length === 0) {
-    return [];
-  }
-
-  let base64Data;
   try {
-    base64Data = await fileToBase64(imageFile);
-  } catch (err) {
-    console.warn('[aiService] No se pudo procesar la imagen para OCR:', err);
-    return [];
-  }
+    const keys = getGeminiApiKeys();
+    if (keys.length === 0) {
+      return [];
+    }
 
-  const { base64, mimeType } = base64Data;
-  const now = Date.now();
-  const candidates = getModelPool().filter(m => !deadModels.has(m));
-  if (candidates.length === 0) return [];
+    const { base64, mimeType } = await fileToBase64(imageFile);
 
-  // Priorizar modelos que NO estén en enfriamiento por 503 reciente
-  const activeModels = [
-    ...candidates.filter(m => (modelCooldownUntil.get(m) || 0) <= now),
-    ...candidates.filter(m => (modelCooldownUntil.get(m) || 0) > now),
-  ];
+    // Pausa obligatoria entre fotos para respetar el límite por minuto (RPM) de la capa gratuita
+    await waitRateLimitSlot(THROTTLE_DELAY_MS);
 
-  // Priorizar claves que NO estén en enfriamiento por 429 reciente, rotando en Round-Robin 50/50
-  const startIdx = (keyRoundRobinCounter++) % allKeys.length;
-  const rotatedKeys = [
-    ...allKeys.slice(startIdx),
-    ...allKeys.slice(0, startIdx),
-  ];
-  const activeKeys = [
-    ...rotatedKeys.filter(k => (keyCooldownUntil.get(k) || 0) <= now),
-    ...rotatedKeys.filter(k => (keyCooldownUntil.get(k) || 0) > now),
-  ];
-
-  // Probamos hasta 3 combinaciones rápidas (modelo / key) para no superar el límite de tiempo
-  const maxAttempts = Math.min(3, Math.max(activeModels.length, activeKeys.length));
-  let lastError = null;
-  let modelIdx = 0;
-  let keyIdx   = 0;
-
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const model  = activeModels[modelIdx % activeModels.length];
-    const apiKey = activeKeys[keyIdx % activeKeys.length];
-    const keyTag = allKeys.length > 1 ? ` [Key #${allKeys.indexOf(apiKey) + 1}]` : '';
-    const ai = getAiClient(apiKey);
+    const primaryIdx = preferredKeyIndex % keys.length;
+    const primaryKey = keys[primaryIdx];
 
     try {
-      const config = {
-        temperature: 0.1,
-        maxOutputTokens: 200,
-        responseMimeType: 'application/json',
-      };
-      // thinkingConfig aplica a modelos 2.5 / flash-latest
-      if (model.includes('flash-latest') || model.includes('2.5')) {
-        config.thinkingConfig = { thinkingBudget: 0 };
+      const dorsals = await callGeminiOnce(primaryKey, base64, mimeType);
+      lastGeminiCallEnd = Date.now();
+      // Alternar suavemente entre las claves disponibles en la próxima foto
+      if (keys.length > 1) {
+        preferredKeyIndex = (primaryIdx + 1) % keys.length;
       }
-
-      const response = await withTimeout(
-        (abortSignal) => ai.models.generateContent({
-          model,
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                { text: PROMPT_DORSALES },
-                { inlineData: { mimeType: mimeType || 'image/jpeg', data: base64 } },
-              ],
-            },
-          ],
-          config: { ...config, abortSignal },
-        }),
-        GEMINI_TIMEOUT_MS,
-      );
-
-      // Éxito: limpiamos cualquier cooldown previo de este modelo y clave
-      modelCooldownUntil.delete(model);
-      keyCooldownUntil.delete(apiKey);
-      const dorsals = parseDorsalsResponse(response?.text ?? '');
-      console.log(`[aiService] Gemini (${model})${keyTag} detectó ${dorsals.length} dorsal(es):`, dorsals);
+      console.log(`[aiService] Gemini (${GEMINI_MODEL}) [Key #${primaryIdx + 1}] detectó ${dorsals.length} dorsal(es):`, dorsals);
       return dorsals;
-    } catch (err) {
-      lastError = { err, model };
-      const status = getErrorStatus(err);
+    } catch (firstErr) {
+      lastGeminiCallEnd = Date.now();
+      const status = getErrorStatus(firstErr);
 
-      if (status === 404) {
-        deadModels.add(model);
-        modelIdx++;
-        console.warn(`[aiService] Modelo "${model}" no disponible (404). Saltando a alternativo...`);
-        continue;
+      // Si hay una segunda API Key de respaldo, hacemos MÁXIMO 1 reintento tras un backoff de 4.5s
+      if (keys.length > 1) {
+        const backupIdx = (primaryIdx + 1) % keys.length;
+        const backupKey = keys[backupIdx];
+        preferredKeyIndex = backupIdx;
+
+        console.warn(
+          `[aiService] Aviso en Key #${primaryIdx + 1} (${status || firstErr?.name || 'error'}). Esperando ${BACKOFF_429_MS / 1000}s para 1 reintento con Key #${backupIdx + 1}...`
+        );
+        await sleep(BACKOFF_429_MS);
+
+        try {
+          const dorsals = await callGeminiOnce(backupKey, base64, mimeType);
+          lastGeminiCallEnd = Date.now();
+          console.log(`[aiService] Gemini (${GEMINI_MODEL}) [Key #${backupIdx + 1} respaldo] detectó ${dorsals.length} dorsal(es):`, dorsals);
+          return dorsals;
+        } catch (retryErr) {
+          lastGeminiCallEnd = Date.now();
+          console.warn(
+            `[aiService] IA omitida para "${imageFile?.name || 'imagen'}" tras reintento (${getErrorStatus(retryErr) || retryErr?.name || 'error'}). La foto puede subirse normalmente.`
+          );
+          return [];
+        }
       }
 
-      if (status === 401 || status === 403 || status === 400) {
-        deadKeys.add(apiKey);
-        keyIdx++;
-        console.warn(`[aiService] API key rechazada (${status})${keyTag}, probando clave alternativa...`);
-        continue;
-      }
-
-      if (status === 429 && activeKeys.length > 1) {
-        // Cuota por minuto alcanzada en esta key: enfriarla 60s y probar primero la otra key
-        keyCooldownUntil.set(apiKey, Date.now() + COOLDOWN_MS);
-        keyIdx++;
-        console.warn(`[aiService] Cuota alcanzada (429)${keyTag}. Rotando a la API Key de respaldo...`);
-        continue;
-      }
-
-      // 503 (Saturado), 500 o Timeout -> enfriar este modelo 60s y pasar al modelo alternativo (y rotar key)
-      modelCooldownUntil.set(model, Date.now() + COOLDOWN_MS);
-      modelIdx++;
-      keyIdx++;
-      const nextModel = activeModels[modelIdx % activeModels.length];
-      if (attempt + 1 < maxAttempts) {
-        console.warn(`[aiService] "${model}"${keyTag} saturado o lento (${status || 'timeout'}). Cambiando automáticamente a "${nextModel}"...`);
-      }
+      console.warn(
+        `[aiService] IA omitida para "${imageFile?.name || 'imagen'}" (${status || firstErr?.name || 'error'}). La foto puede subirse normalmente.`
+      );
+      return [];
     }
+  } catch (unexpectedErr) {
+    console.warn('[aiService] Error inesperado en lectura de dorsales (fail-safe []):', unexpectedErr?.message || unexpectedErr);
+    return [];
   }
-
-  if (lastError) {
-    console.error('[aiService] Todos los modelos intentados fallaron para esta foto:', describeGeminiError(lastError.err, {
-      model: lastError.model,
-      file: imageFile?.name,
-    }));
-  }
-  return [];
 }
 
 // ─── face-api ────────────────────────────────────────────────────────────────
@@ -363,8 +300,6 @@ let modelsLoaded = { admin: false, public: false };
 /**
  * initFaceApi({ forAdmin })
  * Lazily loads face-api and the required models from CDN.
- * forAdmin=true loads full models (ssdMobilenetv1 — more accurate for group photos)
- * forAdmin=false loads tinyFaceDetector (faster for selfie matching)
  */
 export async function initFaceApi({ forAdmin = false } = {}) {
   const key = forAdmin ? 'admin' : 'public';
@@ -375,7 +310,6 @@ export async function initFaceApi({ forAdmin = false } = {}) {
     try {
       const isMobile = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
       if (isMobile) {
-        // En móviles Android/iOS usamos el backend CPU seguro para evitar crashes de WebGL/GPU
         await faceapiModule.tf?.setBackend('cpu');
       } else {
         await faceapiModule.tf?.setBackend('webgl');
@@ -413,7 +347,6 @@ export async function initFaceApi({ forAdmin = false } = {}) {
 
 /**
  * fileToHTMLImage(file) — helper to convert a File/Blob to HTMLImageElement
- * Revokes the temporary ObjectURL immediately on load/error to prevent memory leaks.
  */
 function fileToHTMLImage(file) {
   return new Promise((resolve, reject) => {
@@ -433,9 +366,6 @@ function fileToHTMLImage(file) {
 
 /**
  * extractFaceDescriptors(imageFileOrElement, { forAdmin })
- * Detects ALL faces in the image and returns their descriptors as
- * Array<{ vector: number[] }> (128 numbers each).
- * Safe to store in Firestore (no Float32Array, no nested arrays).
  */
 export async function extractFaceDescriptors(imageFileOrElement, { forAdmin = true } = {}) {
   try {
@@ -459,7 +389,6 @@ export async function extractFaceDescriptors(imageFileOrElement, { forAdmin = tr
         .withFaceDescriptors();
     }
 
-    // Firestore NO soporta arrays anidados (number[][]) → array de objetos planos
     return detections.map(d => ({ vector: Array.from(d.descriptor) }));
   } catch (err) {
     console.warn('[aiService] Face extraction failed:', err);
@@ -469,8 +398,6 @@ export async function extractFaceDescriptors(imageFileOrElement, { forAdmin = tr
 
 /**
  * extractSelfieDescriptor(imageFileOrElement)
- * Extracts a SINGLE descriptor from a selfie (the largest/best face detected).
- * Returns Float32Array | null
  */
 export async function extractSelfieDescriptor(imageFileOrElement) {
   try {
@@ -520,8 +447,6 @@ export function normalizeDescriptors(faceDescriptors) {
 
 /**
  * matchFaceAgainstAlbum(selfieDescriptor, mediaItems, threshold)
- * Compares a selfie's Float32Array descriptor against all faceDescriptors in
- * the album media items.
  */
 export async function matchFaceAgainstAlbum(selfieDescriptor, mediaItems, threshold = 0.55) {
   const faceapi = await initFaceApi({ forAdmin: false });
@@ -542,21 +467,16 @@ export async function matchFaceAgainstAlbum(selfieDescriptor, mediaItems, thresh
   return matchingIds;
 }
 
-// ─── Análisis combinado con soporte de cancelación y doble carril ────────────
-const analysisLanes = [Promise.resolve(), Promise.resolve()];
-let laneCursor = 0;
-
-/**
- * analyzeImageFile(file, options) → Promise<{ dorsals: string[], faceDescriptors: {vector:number[]}[] }>
- */
-const FACE_TIMEOUT_MS = 45000;
+// ─── Cola estrictamente secuencial (1 foto por vez) con Fail-Safe ─────────────
+let sequentialQueue = Promise.resolve();
+const FACE_TIMEOUT_MS = 25000;
 
 /** Resuelve con `fallback` si la promesa no termina a tiempo o falla (nunca rechaza). */
 function settleWithin(promise, ms, fallback, label) {
   let timer;
   const timeout = new Promise(resolve => {
     timer = setTimeout(() => {
-      console.warn(`[aiService] ${label} superó ${ms / 1000}s. Se continúa sin ese dato.`);
+      console.warn(`[aiService] ${label} superó ${ms / 1000}s. Se continúa con [].`);
       resolve(fallback);
     }, ms);
   });
@@ -565,21 +485,24 @@ function settleWithin(promise, ms, fallback, label) {
 
 export function analyzeImageFile(file, { shouldCancel } = {}) {
   const run = async () => {
-    if (typeof shouldCancel === 'function' && shouldCancel()) {
-      return { dorsals: [], faceDescriptors: [], cancelled: true };
+    try {
+      if (typeof shouldCancel === 'function' && shouldCancel()) {
+        return { dorsals: [], faceDescriptors: [], cancelled: true };
+      }
+      // Tope máximo de seguridad: 26s (cubre el intento inicial + backoff de 4.5s + 1 reintento)
+      const dorsals = await settleWithin(detectDorsalsFromFile(file), 26000, [], 'Detección de dorsales');
+      if (typeof shouldCancel === 'function' && shouldCancel()) {
+        return { dorsals, faceDescriptors: [], cancelled: true };
+      }
+      const faceDescriptors = await settleWithin(extractFaceDescriptors(file, { forAdmin: true }), FACE_TIMEOUT_MS, [], 'Detección de rostros');
+      return { dorsals: Array.isArray(dorsals) ? dorsals : [], faceDescriptors: Array.isArray(faceDescriptors) ? faceDescriptors : [] };
+    } catch {
+      return { dorsals: [], faceDescriptors: [] };
     }
-    // Tope global para toda la cadena de failover de dorsales (máx 25s entre todos los intentos)
-    const dorsals = await settleWithin(detectDorsalsFromFile(file), GEMINI_TIMEOUT_MS * 3 + 2000, [], 'Detección de dorsales');
-    if (typeof shouldCancel === 'function' && shouldCancel()) {
-      return { dorsals, faceDescriptors: [], cancelled: true };
-    }
-    const faceDescriptors = await settleWithin(extractFaceDescriptors(file, { forAdmin: true }), FACE_TIMEOUT_MS, [], 'Detección de rostros');
-    return { dorsals, faceDescriptors };
   };
-  // Si hay 2 API keys configuradas, usamos 2 carriles paralelos para duplicar velocidad
-  const laneCount = getGeminiApiKeys().length > 1 ? 2 : 1;
-  const idx = (laneCursor++) % laneCount;
-  const result = analysisLanes[idx].then(run, run);
-  analysisLanes[idx] = result.catch(() => {});
+
+  // Encolado 100% secuencial (una foto tras otra) para nunca disparar ráfagas simultáneas a Gemini
+  const result = sequentialQueue.then(run, run);
+  sequentialQueue = result.catch(() => {});
   return result;
 }

@@ -46,8 +46,8 @@ export default function AdminAlbums() {
   const uploadFilesRef = useRef([]);
   useEffect(() => { uploadFilesRef.current = uploadFiles; }, [uploadFiles]);
 
-  // Espera a que termine el análisis IA de un ítem (máx. 90s) antes de subirlo
-  const waitForAI = async (id, timeoutMs = 90000) => {
+  // Espera brevemente si la foto actual está terminando su análisis IA (máx. 15s) y nunca bloquea la subida
+  const waitForAI = async (id, timeoutMs = 15000) => {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       const it = uploadFilesRef.current.find(f => f.id === id);
