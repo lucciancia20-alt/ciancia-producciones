@@ -10,15 +10,6 @@ function formatDate(ts) {
   return d.toLocaleDateString('es-AR', { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
-const CATEGORY_COLORS = {
-  'Trail Running': 'bg-orange-500/20 text-orange-400 border-orange-500/30',
-  'Ciclismo':      'bg-blue-500/20 text-blue-400 border-blue-500/30',
-  'Fútbol':        'bg-green-500/20 text-green-400 border-green-500/30',
-  'Dron':          'bg-purple-500/20 text-purple-400 border-purple-500/30',
-  'Natación':      'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
-  'Atletismo':     'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-};
-
 export default function AlbumCard({ album }) {
   const [cover, setCover] = useState(album.coverUrl || album.coverImage || null);
   const [imgError, setImgError] = useState(false);
@@ -51,8 +42,6 @@ export default function AlbumCard({ album }) {
     return () => { isMounted = false; };
   }, [album.id, cover]);
 
-  const catClass = CATEGORY_COLORS[album.category] || 'bg-gray-500/20 text-gray-300 border-gray-500/30';
-
   return (
     <Link
       to={`/album/${album.id}`}
@@ -74,16 +63,18 @@ export default function AlbumCard({ album }) {
         </div>
       )}
 
-      {/* Degradado oscuro para garantizar legibilidad perfecta del texto */}
-      <div className="absolute inset-0 bg-gradient-to-t from-dark-950 via-dark-950/60 to-black/30 pointer-events-none transition-colors duration-300 group-hover:via-dark-950/50" />
+      {/* Degradado oscuro de alto contraste para garantizar legibilidad perfecta sobre fotos claras o soleadas */}
+      <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/15 to-black/95 pointer-events-none" />
+      <div className="absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-black via-black/85 to-transparent pointer-events-none" />
 
-      {/* ── Barra superior: Etiquetas separadas en flex (sin superposición) ── */}
+      {/* ── Barra superior: Etiquetas con fondo oscuro sólido de alto contraste ── */}
       <div className="relative z-10 p-4 flex items-center justify-between gap-2">
-        <span className={`text-xs font-bold px-3 py-1 rounded-full border backdrop-blur-sm shadow-sm ${catClass}`}>
-          {album.category || 'Deportes'}
+        <span className="bg-black/85 border border-neon-green/60 text-neon-green text-xs font-bold px-3 py-1 rounded-full backdrop-blur-md shadow-md flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-neon-green flex-shrink-0" />
+          <span>{album.category || 'Deportes'}</span>
         </span>
 
-        <span className="bg-black/75 border border-dark-500/80 rounded-full px-3 py-1 flex items-center gap-1.5 text-xs font-semibold text-white backdrop-blur-sm shadow-sm">
+        <span className="bg-black/85 border border-dark-500/90 rounded-full px-3 py-1 flex items-center gap-1.5 text-xs font-bold text-white backdrop-blur-md shadow-md">
           <Camera className="w-3.5 h-3.5 text-neon-green" />
           <span>{album.totalMedia || 0}</span>
         </span>
@@ -92,31 +83,42 @@ export default function AlbumCard({ album }) {
       {/* Espaciador flexible para empujar la info hacia el fondo */}
       <div className="flex-1" />
 
-      {/* ── Contenido inferior: Título, ubicación, fecha y CTA ── */}
-      <div className="relative z-10 p-5 pt-0 space-y-1.5">
-        <h3 className="font-black text-white text-xl sm:text-2xl leading-tight group-hover:text-neon-green transition-colors drop-shadow-md line-clamp-2">
+      {/* ── Contenido inferior: Título, ubicación, fecha y CTA de alto contraste ── */}
+      <div className="relative z-10 p-5 pt-0 space-y-2">
+        <h3
+          className="font-black text-white text-xl sm:text-2xl leading-tight group-hover:text-neon-green transition-colors line-clamp-2"
+          style={{ textShadow: '0 2px 6px rgba(0,0,0,0.95)' }}
+        >
           {album.title}
         </h3>
 
-        <div className="flex flex-wrap items-center gap-y-1 gap-x-4 text-gray-300 text-xs font-medium">
+        <div className="flex flex-col gap-1 text-white text-xs font-semibold">
           {album.location && (
-            <span className="flex items-center gap-1 drop-shadow-sm">
+            <span
+              className="flex items-center gap-1.5"
+              style={{ textShadow: '0 1px 4px rgba(0,0,0,0.95)' }}
+            >
               <MapPin className="w-3.5 h-3.5 text-neon-green flex-shrink-0" />
-              <span>{album.location}</span>
+              <span className="truncate">{album.location}</span>
             </span>
           )}
           {album.date && (
-            <span className="flex items-center gap-1 text-gray-400 drop-shadow-sm">
-              <Calendar className="w-3.5 h-3.5 flex-shrink-0" />
+            <span
+              className="flex items-center gap-1.5 text-gray-100"
+              style={{ textShadow: '0 1px 4px rgba(0,0,0,0.95)' }}
+            >
+              <Calendar className="w-3.5 h-3.5 text-neon-green flex-shrink-0" />
               <span>{formatDate(album.date)}</span>
             </span>
           )}
         </div>
 
-        {/* Indicador interactivo en hover */}
-        <div className="pt-1 flex items-center text-neon-green text-xs font-bold gap-1 transform transition-transform duration-200 group-hover:translate-x-1">
-          <span>Ver fotos</span>
-          <ChevronRight className="w-4 h-4" />
+        {/* Botón "Ver fotos >" con contraste sólido para verse nítido sobre cualquier foto */}
+        <div className="pt-1">
+          <span className="inline-flex items-center gap-1 bg-neon-green text-black text-xs font-extrabold px-3 py-1.5 rounded-lg shadow-md transform transition-transform duration-200 group-hover:translate-x-1">
+            <span>Ver fotos</span>
+            <ChevronRight className="w-4 h-4 stroke-[2.5]" />
+          </span>
         </div>
       </div>
     </Link>

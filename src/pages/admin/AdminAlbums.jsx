@@ -8,7 +8,7 @@ import { Link } from 'react-router-dom';
 import {
   ArrowLeft, Plus, Upload, X, Check, Loader2, Camera, Video,
   Eye, ChevronDown, ChevronUp, AlertCircle, CheckCircle2,
-  Bot, ScanFace, Save, Trash2, Tag, RefreshCw,
+  Bot, ScanFace, Save, Trash2, Tag, RefreshCw, Pencil,
 } from 'lucide-react';
 import { uploadToCloudinary } from '../../services/cloudinary';
 
@@ -35,6 +35,9 @@ export default function AdminAlbums() {
   const [albumPriceEdits, setAlbumPriceEdits]   = useState({}); // { [albumId]: { pricePhoto, priceVideo } }
   const [savingMediaId, setSavingMediaId]       = useState(null);
   const [savingAlbumPriceId, setSavingAlbumPriceId] = useState(null);
+  const [editingAlbumId, setEditingAlbumId]     = useState(null);
+  const [albumInfoEdits, setAlbumInfoEdits]     = useState({ title: '', location: '', category: 'Trail Running' });
+  const [savingAlbumInfoId, setSavingAlbumInfoId] = useState(null);
   const [deletingAlbumId, setDeletingAlbumId] = useState(null);
   const [confirmDeleteAlbum, setConfirmDeleteAlbum] = useState(null);
   const [deletingMediaId, setDeletingMediaId] = useState(null);
@@ -117,6 +120,38 @@ export default function AdminAlbums() {
       alert('Error guardando precios del álbum: ' + e.message);
     } finally {
       setSavingAlbumPriceId(null);
+    }
+  };
+
+  const startEditAlbumInfo = (album) => {
+    setEditingAlbumId(album.id);
+    setAlbumInfoEdits({
+      title: album.title || '',
+      location: album.location || '',
+      category: album.category || 'Trail Running',
+    });
+  };
+
+  const saveAlbumInfo = async (albumId) => {
+    const cleanTitle = (albumInfoEdits.title || '').trim();
+    if (!cleanTitle) {
+      alert('El nombre del álbum no puede estar vacío.');
+      return;
+    }
+    setSavingAlbumInfoId(albumId);
+    try {
+      const updates = {
+        title: cleanTitle,
+        location: (albumInfoEdits.location || '').trim(),
+        category: albumInfoEdits.category || 'Trail Running',
+      };
+      await updateDoc(doc(db, 'albums', albumId), updates);
+      setAlbums(prev => prev.map(a => a.id === albumId ? { ...a, ...updates } : a));
+      setEditingAlbumId(null);
+    } catch (e) {
+      alert('Error al guardar el álbum: ' + e.message);
+    } finally {
+      setSavingAlbumInfoId(null);
     }
   };
 
@@ -866,7 +901,7 @@ export default function AdminAlbums() {
           <div className="space-y-3">
             {albums.map(album => (
               <div key={album.id} className="card-dark border border-dark-500">
-                <div className="p-4 flex items-center gap-4">
+                <div className="p-4 flex flex-wrap sm:flex-nowrap items-center gap-4">
                   <img
                     src={album.coverUrl || 'https://placehold.co/80x60/1a1a1a/39FF14?text=Sin+portada'}
                     alt={album.title}
@@ -876,17 +911,38 @@ export default function AdminAlbums() {
                     <h3 className="font-bold text-white truncate">{album.title}</h3>
                     <p className="text-gray-400 text-xs">{album.category} · {album.location} · {album.totalMedia || 0} archivos</p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Link to={`/album/${album.id}`} className="p-2 text-gray-400 hover:text-neon-green transition-colors" title="Ver álbum">
+                  <div className="flex items-center flex-wrap gap-2">
+                    <Link
+                      to={`/album/${album.id}`}
+                      className="p-2 text-gray-400 hover:text-neon-green transition-colors"
+                      title="Ver álbum en la tienda"
+                    >
                       <Eye className="w-4 h-4" />
                     </Link>
+
                     <button
-                      onClick={() => toggleAlbum(album.id)}
-                      className="p-2 text-gray-400 hover:text-neon-green transition-colors"
-                      title={expandedAlbum === album.id ? 'Ocultar detalles' : 'Ver detalles'}
+                      type="button"
+                      onClick={() => editingAlbumId === album.id ? setEditingAlbumId(null) : startEditAlbumInfo(album)}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-gray-200 bg-dark-700 border border-dark-500 hover:text-neon-green hover:border-neon-green/50 transition-colors"
+                      title="Editar nombre y datos del álbum"
                     >
-                      {expandedAlbum === album.id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      <Pencil className="w-3.5 h-3.5 text-neon-green" />
+                      <span>Editar</span>
                     </button>
+
+                    <button
+                      type="button"
+                      onClick={() => toggleAlbum(album.id)}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-gray-200 bg-dark-700 border border-dark-500 hover:text-neon-green hover:border-neon-green/50 transition-colors"
+                    >
+                      {expandedAlbum === album.id ? (
+                        <ChevronUp className="w-3.5 h-3.5 text-neon-green" />
+                      ) : (
+                        <ChevronDown className="w-3.5 h-3.5 text-neon-green" />
+                      )}
+                      <span>Detalles</span>
+                    </button>
+
                     <button
                       type="button"
                       onClick={() => setConfirmDeleteAlbum(album)}
@@ -903,6 +959,68 @@ export default function AdminAlbums() {
                     </button>
                   </div>
                 </div>
+
+                {/* ── Formulario rápido para editar nombre, ubicación y categoría del álbum ── */}
+                {editingAlbumId === album.id && (
+                  <div className="border-t border-dark-600 bg-dark-800/80 p-4 space-y-3">
+                    <p className="text-xs font-bold text-neon-green flex items-center gap-1.5">
+                      <Pencil className="w-3.5 h-3.5" /> Editar nombre y datos del álbum
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="text-xs text-gray-400 mb-1 block">Nombre del álbum *</label>
+                        <input
+                          type="text"
+                          value={albumInfoEdits.title}
+                          onChange={e => setAlbumInfoEdits(p => ({ ...p, title: e.target.value }))}
+                          onKeyDown={e => { if (e.key === 'Enter') saveAlbumInfo(album.id); }}
+                          className="input-dark text-sm py-1.5"
+                          placeholder="Nombre del álbum"
+                          autoFocus
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400 mb-1 block">Ubicación</label>
+                        <input
+                          type="text"
+                          value={albumInfoEdits.location}
+                          onChange={e => setAlbumInfoEdits(p => ({ ...p, location: e.target.value }))}
+                          onKeyDown={e => { if (e.key === 'Enter') saveAlbumInfo(album.id); }}
+                          className="input-dark text-sm py-1.5"
+                          placeholder="Ej: Villa Ventana"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400 mb-1 block">Categoría</label>
+                        <select
+                          value={albumInfoEdits.category}
+                          onChange={e => setAlbumInfoEdits(p => ({ ...p, category: e.target.value }))}
+                          className="input-dark text-sm py-1.5"
+                        >
+                          {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => saveAlbumInfo(album.id)}
+                        disabled={savingAlbumInfoId === album.id}
+                        className="btn-neon text-xs py-1.5 px-4 flex items-center gap-1.5"
+                      >
+                        {savingAlbumInfoId === album.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                        Guardar cambios
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingAlbumId(null)}
+                        className="btn-outline-neon text-xs py-1.5 px-3"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {expandedAlbum === album.id && (
                   <div className="border-t border-dark-600 p-4 text-sm text-gray-400 space-y-2">
