@@ -67,15 +67,15 @@ export function uploadToCloudinary(file, { folder = 'ciancia', onProgress } = {}
 function buildResult(data, isVideo) {
   const { public_id, secure_url, resource_type, format, duration, width, height } = data;
 
-  // URL de alta calidad para el visor/descarga manteniendo proporción original
+  // URL de alta calidad reservada para la descarga post-compra manteniendo proporción original
   const url = isVideo
     ? secure_url
-    : buildImageUrl(public_id, 'w_2400,h_2400,c_limit,f_auto,q_auto:best');
+    : buildImageUrl(public_id, 'w_3840,h_3840,c_limit,f_auto,q_auto:best');
 
-  // Thumbnail para grillas preservando orientación nativa con c_limit (sin recortes forzados)
+  // Muestra en baja resolución para grillas y visor público con lupa (máx 800px, comprimida q_55)
   const thumb = isVideo
     ? buildVideoThumb(public_id)
-    : buildImageUrl(public_id, 'w_600,h_600,c_limit,f_auto,q_80');
+    : buildImageUrl(public_id, 'w_800,h_800,c_limit,q_55,f_auto');
 
   return {
     publicId:     public_id,
@@ -90,15 +90,74 @@ function buildResult(data, isVideo) {
   };
 }
 
-// ─── Helpers de URL ───────────────────────────────────────────────────────────
+// ─── Helpers de URL y Seguridad de Muestras ──────────────────────────────────
 
 function buildImageUrl(publicId, transforms) {
   return `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/${transforms}/${publicId}`;
 }
 
-/** Thumbnail de video: frame del segundo 1, convertido a JPG manteniendo proporción con c_limit */
+/** Thumbnail de video: frame del segundo 1, convertido a JPG en baja resolución con c_limit */
 function buildVideoThumb(publicId) {
-  return `https://res.cloudinary.com/${CLOUD_NAME}/video/upload/so_1,w_600,h_600,c_limit,f_jpg,q_80/${publicId}.jpg`;
+  return `https://res.cloudinary.com/${CLOUD_NAME}/video/upload/so_1,w_600,h_600,c_limit,f_jpg,q_55/${publicId}.jpg`;
+}
+
+/**
+ * Transforma cualquier URL de imagen (Cloudinary o externa) en una muestra de baja
+ * resolución y alta compresión para el catálogo público y el visor con lupa.
+ * Nunca expone la resolución original en el frontend público.
+ */
+export function getLowResSampleUrl(rawUrl, { width = 800, quality = 55 } = {}) {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+
+  // 1) Si es una imagen alojada en Cloudinary, forzamos transformación w_{width},q_{quality},f_auto
+  if (rawUrl.includes('res.cloudinary.com') && rawUrl.includes('/image/upload/')) {
+    const [prefix, rest] = rawUrl.split('/image/upload/');
+    if (rest) {
+      const segments = rest.split('/');
+      const firstSeg = segments[0] || '';
+      const looksLikeTransform =
+        firstSeg.includes(',') ||
+        /^(w_|h_|c_|q_|f_|g_|ar_|e_|fl_|bo_|r_|o_|a_|b_)/.test(firstSeg);
+      const cleanPath = looksLikeTransform ? segments.slice(1).join('/') : rest;
+      return `${prefix}/image/upload/w_${width},h_${width},c_limit,q_${quality},f_auto/${cleanPath}`;
+    }
+  }
+
+  // 2) Si es una URL de Unsplash u otro CDN con parámetros de query
+  if (rawUrl.includes('images.unsplash.com')) {
+    try {
+      const u = new URL(rawUrl);
+      u.searchParams.set('w', String(width));
+      u.searchParams.set('q', String(quality));
+      return u.toString();
+    } catch {
+      return rawUrl;
+    }
+  }
+
+  return rawUrl;
+}
+
+/**
+ * Obtiene la URL en Máxima Calidad (HD/4K) exclusivamente para órdenes aprobadas.
+ */
+export function getHighResDownloadUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+
+  if (rawUrl.includes('res.cloudinary.com') && rawUrl.includes('/image/upload/')) {
+    const [prefix, rest] = rawUrl.split('/image/upload/');
+    if (rest) {
+      const segments = rest.split('/');
+      const firstSeg = segments[0] || '';
+      const looksLikeTransform =
+        firstSeg.includes(',') ||
+        /^(w_|h_|c_|q_|f_|g_|ar_|e_|fl_|bo_|r_|o_|a_|b_)/.test(firstSeg);
+      const cleanPath = looksLikeTransform ? segments.slice(1).join('/') : rest;
+      return `${prefix}/image/upload/f_auto,q_auto:best/${cleanPath}`;
+    }
+  }
+
+  return rawUrl;
 }
 
 function formatDuration(seconds) {

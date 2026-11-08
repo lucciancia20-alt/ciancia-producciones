@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase/config';
+import { getLowResSampleUrl } from '../services/cloudinary';
 
 const CartContext = createContext(null);
 
@@ -33,7 +34,8 @@ export function CartProvider({ children }) {
     setItems(prev => {
       if (prev.find(i => i.id === media.id)) return prev;
       const basePrice = Number(media.price) || (media.type === 'video' ? 3000 : 2000);
-      return [...prev, { ...media, price: basePrice, quantity: 1 }];
+      const lowResThumb = getLowResSampleUrl(media.thumb || media.url, { width: 320, quality: 50 });
+      return [...prev, { ...media, thumb: lowResThumb, price: basePrice, quantity: 1 }];
     });
   }, []);
 

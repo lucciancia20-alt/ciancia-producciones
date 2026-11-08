@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { collection, getDocs, query, orderBy, doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import AlbumCard from '../components/AlbumCard';
+import { getLowResSampleUrl, getHighResDownloadUrl } from '../services/cloudinary';
 import {
   Camera, Zap, Shield, Download, X, Search, CheckCircle2, Clock,
   Sparkles, ScanFace, ShoppingBag, ArrowRight, Film, Image as ImageIcon,
@@ -308,6 +309,11 @@ export default function Home() {
       }
       targetUrl = targetUrl || item.thumb;
       if (!targetUrl) throw new Error('URL no disponible');
+
+      // Aseguramos entregar el original en máxima calidad (HD/4K) para pedidos aprobados
+      if (item.type !== 'video') {
+        targetUrl = getHighResDownloadUrl(targetUrl);
+      }
 
       // Intentamos descargar como Blob para forzar la descarga directa con su nombre original
       try {
@@ -690,9 +696,10 @@ export default function Home() {
                                         className="flex items-center gap-2.5 bg-dark-800 border border-dark-500 rounded-lg p-2"
                                       >
                                         <img
-                                          src={item.thumb || item.url}
+                                          src={getLowResSampleUrl(item.thumb || item.url, { width: 200, quality: 50 })}
                                           alt={item.fileName}
-                                          className="w-12 h-10 object-cover rounded flex-shrink-0"
+                                          className="w-12 h-10 object-cover rounded flex-shrink-0 select-none pointer-events-none"
+                                          draggable="false"
                                         />
                                         <div className="flex-1 min-w-0">
                                           <p className="text-xs text-white font-medium truncate">{item.fileName}</p>

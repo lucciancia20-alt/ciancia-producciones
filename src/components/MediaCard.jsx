@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ShoppingCart, Play, Eye, Check, Trash2 } from 'lucide-react';
 import { useCart } from '../context/CartContext';
+import { getLowResSampleUrl } from '../services/cloudinary';
+import { drawWatermarks } from './MagnifierViewer';
 
 function formatPrice(n) {
   return `$${(n || 0).toLocaleString('es-AR')}`;
@@ -10,11 +12,16 @@ function formatPrice(n) {
 const blockMenu = (e) => e.preventDefault();
 const blockDrag = (e) => e.preventDefault();
 
+const CARD_MAX_DIM = 520; // Muestra en baja resolución para las tarjetas del catálogo
+
 export default function MediaCard({ media, onView, onDelete }) {
   const { addItem, removeItem, items } = useCart();
   const [isPortrait, setIsPortrait]    = useState(false);
-  const inCart  = items.some(i => i.id === media.id);
-  const isVideo = media.type === 'video';
+  const [loaded, setLoaded]            = useState(false);
+  const canvasRef                      = useRef(null);
+
+  const inCart    = items.some(i => i.id === media.id);
+  const isVideo   = media.type === 'video';
   const itemPrice = Number(media.price) || (isVideo ? 3000 : 2000);
 
   const handleCart = (e) => {
@@ -23,70 +30,101 @@ export default function MediaCard({ media, onView, onDelete }) {
     else addItem(media);
   };
 
-  const handleImgLoad = (e) => {
-    const img = e.currentTarget;
-    if (img.naturalHeight > img.naturalWidth * 1.08) {
-      setIsPortrait(true);
-    }
-  };
+  // Carga la miniatura en baja resolución en memoria y la dibuja en <canvas> con marca de agua Anti-IA
+  useEffect(() => {
+    let cancelled = false;
+    setLoaded(false);
+
+    const lowResSrc = getLowResSampleUrl(media.thumb || media.url, {
+      width:   CARD_MAX_DIM,
+      quality: 55,
+    });
+
+    if (!lowResSrc) return;
+
+    const loadAndDraw = (useCors) => {
+      const img = new window.Image();
+      if (useCors) img.crossOrigin = 'anonymous';
+      img.decoding = 'async';
+
+      img.onload = () => {
+        if (cancelled) return;
+        const nw = img.naturalWidth  || 480;
+        const nh = img.naturalHeight || 360;
+        if (nh > nw * 1.08) setIsPortrait(true);
+
+        const scale = Math.min(1, CARD_MAX_DIM / Math.max(nw, nh));
+        const w = Math.max(1, Math.round(nw * scale));
+        const h = Math.max(1, Math.round(nh * scale));
+
+        const canvas = canvasRef.current;
+        if (canvas) {
+          canvas.width  = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.clearRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
+          drawWatermarks(ctx, w, h);
+        }
+        setLoaded(true);
+      };
+
+      img.onerror = () => {
+        if (cancelled) return;
+        if (useCors) loadAndDraw(false);
+      };
+
+      img.src = lowResSrc;
+    };
+
+    loadAndDraw(true);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [media.id, media.thumb, media.url]);
 
   return (
     <div
-      className="card-dark group hover:border-neon-green/40 hover:shadow-lg hover:shadow-neon-green/5 cursor-pointer"
+      className="card-dark group hover:border-neon-green/40 hover:shadow-lg hover:shadow-neon-green/5 cursor-pointer select-none"
+      style={{
+        userSelect:         'none',
+        WebkitUserSelect:   'none',
+        WebkitTouchCallout: 'none',
+      }}
+      onContextMenu={blockMenu}
+      onDragStart={blockDrag}
       onClick={() => onView && onView(media)}
     >
-      {/* ── Thumbnail ─────────────────────────────────────────────────── */}
-      <div className="relative overflow-hidden h-52 bg-dark-900 select-none flex items-center justify-center">
+      {/* ── Thumbnail protegida en <canvas> (sin <img> expuesto) ──────── */}
+      <div
+        className="relative overflow-hidden h-52 bg-dark-900 select-none flex items-center justify-center"
+        style={{
+          userSelect:         'none',
+          WebkitUserSelect:   'none',
+          WebkitTouchCallout: 'none',
+        }}
+        onContextMenu={blockMenu}
+      >
+        {!loaded && (
+          <div className="absolute inset-0 bg-dark-800 animate-pulse flex items-center justify-center">
+            <span className="text-[11px] text-gray-500 font-medium">Cargando muestra…</span>
+          </div>
+        )}
 
-        {/* Imagen nítida: si es vertical se muestra completa sin estirar ni mutilar */}
-        <img
-          src={media.thumb || media.url}
-          alt={media.fileName}
-          onLoad={handleImgLoad}
-          className={`w-full h-full transition-transform duration-300 group-hover:scale-105 pointer-events-none ${
-            isPortrait ? 'object-contain bg-dark-900' : 'object-cover object-center'
-          }`}
-          loading="lazy"
+        <canvas
+          ref={canvasRef}
           onContextMenu={blockMenu}
           onDragStart={blockDrag}
-          draggable="false"
+          style={{
+            userSelect:         'none',
+            WebkitUserSelect:   'none',
+            WebkitTouchCallout: 'none',
+          }}
+          className={`w-full h-full transition-transform duration-300 group-hover:scale-105 pointer-events-none select-none ${
+            isPortrait ? 'object-contain bg-dark-900' : 'object-cover object-center'
+          }`}
         />
-
-        {/* ── Capa de marcas de agua (sin fondo oscuro) ─────────────── */}
-        <div className="absolute inset-0 pointer-events-none select-none overflow-hidden">
-
-          {/* Patrón repetido sutil — grid 2×2 espaciado sin superposición */}
-          <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 gap-6 p-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="flex items-center justify-center">
-                <span
-                  className="text-white/15 font-black text-[8px] rotate-[-28deg] whitespace-nowrap leading-none"
-                  style={{ letterSpacing: '0.24em', wordSpacing: '0.4em' }}
-                >
-                  CIANCIA PROD.
-                </span>
-              </div>
-            ))}
-          </div>
-
-          {/* Marca central prominente sutil diagonal */}
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="rotate-[-28deg] text-center">
-              <p
-                className="font-black text-[10px] sm:text-[11px] whitespace-nowrap"
-                style={{
-                  color: 'rgba(255,255,255,0.28)',
-                  textShadow: '0 1px 3px rgba(0,0,0,0.6), 0 0 6px rgba(0,0,0,0.4)',
-                  letterSpacing: '0.24em',
-                  wordSpacing: '0.42em',
-                }}
-              >
-                CIANCIA PRODUCCIONES
-              </p>
-            </div>
-          </div>
-        </div>
-        {/* ─────────────────────────────────────────────────────────────── */}
 
         {/* Badge de video */}
         {isVideo && (
