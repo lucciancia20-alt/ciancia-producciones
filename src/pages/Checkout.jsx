@@ -305,13 +305,17 @@ export default function Checkout() {
 
                 {/* ── Transferencia bancaria ── */}
                 {method === 'transfer' && (
-                  <div className="bg-dark-700 border border-dark-500 rounded-xl p-5 space-y-3">
-                    <h3 className="font-bold text-neon-green text-sm uppercase tracking-wider">
-                      Datos bancarios
-                    </h3>
+                  <div
+                    key="transfer"
+                    className="bg-neon-green/10 border border-neon-green/30 rounded-xl p-5 space-y-3 shadow-[0_0_20px_rgba(57,255,20,0.08)] animate-fade-in-up"
+                  >
+                    <p className="flex items-center gap-2 text-neon-green font-semibold">
+                      <span className="w-2.5 h-2.5 rounded-full bg-neon-green shadow-neon-sm flex-shrink-0" />
+                      Transferencia Bancaria{payConfig?.banco ? ` — ${payConfig.banco}` : ''}
+                    </p>
 
                     {configLoading ? (
-                      <div className="flex items-center gap-2 text-gray-400 text-sm py-2">
+                      <div className="flex items-center gap-2 text-gray-400 text-sm">
                         <Loader2 className="w-4 h-4 animate-spin" /> Cargando datos...
                       </div>
                     ) : (
@@ -327,13 +331,27 @@ export default function Checkout() {
                         )}
                       </div>
                     )}
+
+                    <p className="text-gray-400 text-sm">
+                      Total a transferir:{' '}
+                      <strong className="text-neon-green">{formatPrice(total)}</strong>
+                    </p>
+                    <p className="text-gray-500 text-xs">
+                      Realizá la transferencia y confirmá el pedido. Recibirás acceso a la descarga cuando el pago sea verificado.
+                    </p>
                   </div>
                 )}
 
                 {/* ── Mercado Pago ── */}
                 {method === 'mercadopago' && (
-                  <div className="bg-blue-900/20 border border-blue-500/30 rounded-xl p-5 space-y-3">
-                    <p className="text-blue-300 font-semibold">🔵 Mercado Pago</p>
+                  <div
+                    key="mercadopago"
+                    className="bg-blue-900/20 border border-blue-500/30 rounded-xl p-5 space-y-3 shadow-[0_0_20px_rgba(59,130,246,0.08)] animate-fade-in-up"
+                  >
+                    <p className="flex items-center gap-2 text-blue-300 font-semibold">
+                      <span className="w-2.5 h-2.5 rounded-full bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.8)] flex-shrink-0" />
+                      Mercado Pago
+                    </p>
 
                     {configLoading ? (
                       <div className="flex items-center gap-2 text-gray-400 text-sm">

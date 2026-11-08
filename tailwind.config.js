@@ -28,8 +28,13 @@ export default {
       },
       animation: {
         'pulse-neon': 'pulseNeon 2s ease-in-out infinite',
+        'fade-in-up': 'fadeInUp 0.3s ease-out both',
       },
       keyframes: {
+        fadeInUp: {
+          '0%':   { opacity: '0', transform: 'translateY(6px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
         pulseNeon: {
           '0%, 100%': { boxShadow: '0 0 5px #39FF14, 0 0 10px rgba(57,255,20,0.3)' },
           '50%': { boxShadow: '0 0 20px #39FF14, 0 0 40px rgba(57,255,20,0.5)' },
