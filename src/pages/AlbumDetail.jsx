@@ -111,22 +111,22 @@ export default function AlbumDetail() {
   const heroCover = album.coverUrl || album.coverImage || (media.length > 0 ? (media[0].thumb || media[0].url) : null);
 
   return (
-    <div className="min-h-screen pt-20">
-      {/* Album hero */}
-      <div className="relative h-72 overflow-hidden bg-dark-800">
+    <div className="min-h-screen pt-16">
+      {/* Album hero — más alto para lucir la portada y encuadrar limpia la 1ra fila de fotos */}
+      <div className="relative h-80 sm:h-96 md:h-[410px] overflow-hidden bg-dark-800">
         {heroCover ? (
-          <img src={heroCover} alt="" role="presentation" className="w-full h-full object-cover" />
+          <img src={heroCover} alt="" role="presentation" className="w-full h-full object-cover object-center" />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-dark-800 via-dark-900 to-black" />
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-dark-900 via-dark-900/60 to-transparent" />
-        <div className="absolute bottom-0 left-0 right-0 p-6 max-w-7xl mx-auto">
-          <Link to="/" className="inline-flex items-center gap-2 text-gray-400 hover:text-neon-green transition-colors mb-3 text-sm">
+        <div className="absolute inset-0 bg-gradient-to-t from-dark-900 via-dark-900/45 to-black/20" />
+        <div className="absolute bottom-0 left-0 right-0 p-6 sm:pb-8 max-w-7xl mx-auto">
+          <Link to="/" className="inline-flex items-center gap-2 text-gray-300 hover:text-neon-green transition-colors mb-3 text-sm font-medium drop-shadow">
             <ArrowLeft className="w-4 h-4" />
             Volver
           </Link>
-          <h1 className="text-3xl sm:text-4xl font-black text-white leading-tight">{album.title}</h1>
-          <div className="flex items-center gap-4 mt-2 text-gray-400 text-sm">
+          <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-white leading-tight drop-shadow-lg">{album.title}</h1>
+          <div className="flex items-center gap-4 mt-2.5 text-gray-300 text-sm font-medium drop-shadow">
             <span>📍 {album.location}</span>
             <span>🗂 {media.length} archivos</span>
           </div>
@@ -134,7 +134,7 @@ export default function AlbumDetail() {
       </div>
 
       {/* Controls */}
-      <div className="max-w-7xl mx-auto px-4 py-6">
+      <div className="max-w-7xl mx-auto px-4 py-7">
         <div className="flex flex-col sm:flex-row gap-4">
           {/* Dorsal search */}
           <div className="relative flex-1">
@@ -272,7 +272,7 @@ export default function AlbumDetail() {
             <p className="text-sm mt-1">Probá con otro número de dorsal</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-4 gap-y-8">
             {filtered.map(item => (
               <MediaCard
                 key={item.id}
