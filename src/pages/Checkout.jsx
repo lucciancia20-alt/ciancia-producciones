@@ -119,7 +119,7 @@ export default function Checkout() {
     try {
       /* ── Subir comprobante a Cloudinary (si existe) ── */
       let voucherUrl = null;
-      if (voucher && method === 'transfer') {
+      if (voucher) {
         try {
           const result = await uploadToCloudinary(voucher, { folder: 'ciancia/vouchers' });
           voucherUrl = result.secure_url || result.url;
@@ -299,7 +299,7 @@ export default function Checkout() {
                   >
                     <CreditCard className={`w-7 h-7 mb-2 ${method === 'mercadopago' ? 'text-neon-green' : 'text-gray-400'}`} />
                     <p className="font-bold text-white text-sm">Mercado Pago</p>
-                    <p className="text-xs text-gray-400 mt-0.5">Alias / QR / saldo MP</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Alias / QR + comprobante</p>
                   </button>
                 </div>
 
@@ -327,31 +327,6 @@ export default function Checkout() {
                         )}
                       </div>
                     )}
-
-                    {/* Adjuntar comprobante */}
-                    <div className="pt-2">
-                      <label className="text-sm text-gray-400 mb-2 block">
-                        Adjuntá tu comprobante de pago
-                        <span className="text-gray-600 ml-1">(imagen o PDF)</span>
-                      </label>
-                      <label className="flex items-center gap-3 p-3 border-2 border-dashed border-dark-400 rounded-lg cursor-pointer hover:border-neon-green/50 transition-colors">
-                        <Upload className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                        <span className="text-sm text-gray-400 truncate">
-                          {voucherName || 'Seleccionar imagen o PDF...'}
-                        </span>
-                        <input
-                          type="file"
-                          accept="image/*,.pdf"
-                          onChange={handleVoucher}
-                          className="hidden"
-                        />
-                      </label>
-                      {voucher && (
-                        <p className="text-xs text-gray-500 mt-1">
-                          Se subirá de forma segura al confirmar el pedido.
-                        </p>
-                      )}
-                    </div>
                   </div>
                 )}
 
@@ -385,6 +360,31 @@ export default function Checkout() {
                     </p>
                   </div>
                 )}
+
+                {/* ── Adjuntar comprobante (común a Transferencia y Mercado Pago) ── */}
+                <div className="bg-dark-700 border border-dark-500 rounded-xl p-5">
+                  <label className="text-sm text-gray-400 mb-2 block">
+                    Adjuntá tu comprobante de pago
+                    <span className="text-gray-600 ml-1">(imagen o PDF)</span>
+                  </label>
+                  <label className="flex items-center gap-3 p-3 border-2 border-dashed border-dark-400 rounded-lg cursor-pointer hover:border-neon-green/50 transition-colors">
+                    <Upload className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                    <span className="text-sm text-gray-400 truncate">
+                      {voucherName || 'Seleccionar imagen o PDF...'}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/*,.pdf"
+                      onChange={handleVoucher}
+                      className="hidden"
+                    />
+                  </label>
+                  {voucher && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Se subirá de forma segura al confirmar el pedido.
+                    </p>
+                  )}
+                </div>
               </div>
 
               {/* Error */}
