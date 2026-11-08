@@ -404,9 +404,9 @@ export default function Home() {
       for (let idx = 0; idx < itemsList.length; idx++) {
         setDownloadingAllOrder({ orderId: order.id, current: idx + 1, total: itemsList.length });
         await handleDownloadOriginal(order.id, itemsList[idx]);
-        // Pausa breve entre descargas para que el navegador no bloquee múltiples descargas seguidas
+        // Pausa breve entre descargas (300ms) para que el navegador no bloquee múltiples descargas seguidas
         if (idx < itemsList.length - 1) {
-          await new Promise(res => setTimeout(res, 450));
+          await new Promise(res => setTimeout(res, 300));
         }
       }
     } finally {
@@ -771,11 +771,11 @@ export default function Home() {
                               </div>
                             ) : (
                               <div className="space-y-2.5">
-                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex flex-wrap items-center justify-between gap-2 bg-neon-green/10 border border-neon-green/30 rounded-lg px-3 py-2">
                                   <p className="text-xs text-neon-green font-semibold">
-                                    ¡Pago verificado! Descargá tus archivos originales en Máxima Calidad (HD/4K) sin marca de agua:
+                                    ¡Pago verificado! Descargá tus archivos en calidad original sin marca de agua:
                                   </p>
-                                  {(order.items || []).length > 1 && (
+                                  {(order.items || []).length >= 2 && (
                                     <button
                                       type="button"
                                       onClick={() => handleDownloadAll(order)}
@@ -790,10 +790,7 @@ export default function Home() {
                                           </span>
                                         </>
                                       ) : (
-                                        <>
-                                          <Download className="w-3.5 h-3.5" />
-                                          <span>Descargar todas ({order.items.length})</span>
-                                        </>
+                                        <span>⬇ Descargar todas</span>
                                       )}
                                     </button>
                                   )}

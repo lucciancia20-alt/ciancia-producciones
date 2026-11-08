@@ -51,6 +51,7 @@ export default function AdminOrders() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [approvingId, setApprovingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [confirmDeleteOrder, setConfirmDeleteOrder] = useState(null);
   const [copiedOrderId, setCopiedOrderId] = useState(null);
   const [liveAlertOrder, setLiveAlertOrder] = useState(null);
   const [notifPerm, setNotifPerm] = useState(() => (typeof window !== 'undefined' && 'Notification' in window) ? Notification.permission : 'unsupported');
@@ -101,9 +102,6 @@ export default function AdminOrders() {
   };
 
   const handleDelete = async (orderId) => {
-    if (!window.confirm('¿Seguro que deseas eliminar esta orden? Se borrará de forma permanente de Firestore.')) {
-      return;
-    }
     setDeletingId(orderId);
     try {
       await deleteDoc(doc(db, 'orders', orderId));
@@ -111,6 +109,7 @@ export default function AdminOrders() {
       if (selectedOrder?.id === orderId) {
         setSelectedOrder(null);
       }
+      setConfirmDeleteOrder(null);
     } catch (e) {
       console.error('[handleDelete] Error:', e);
       alert('Error al eliminar: ' + (e.message || 'Error inesperado'));
@@ -316,6 +315,17 @@ export default function AdminOrders() {
                     <div className="flex items-center gap-2.5 flex-shrink-0 flex-wrap">
                       <span className="text-neon-green font-black text-lg">{formatPrice(order.total)}</span>
 
+                      {(order.voucherUrl || order.receipt || order.comprobanteUrl || order.voucherBase64) && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedOrder(order)}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-300 hover:text-blue-200 border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg transition-colors"
+                          title="Ver comprobante de pago"
+                        >
+                          <span>📄 Ver comprobante</span>
+                        </button>
+                      )}
+
                       {order.status === 'approved' && (
                         <>
                           <a
@@ -326,38 +336,22 @@ export default function AdminOrders() {
                             title="Enviar link directo de descarga por WhatsApp"
                           >
                             <MessageCircle className="w-4 h-4" />
-                            <span>Enviar WhatsApp</span>
+                            <span>WhatsApp</span>
                           </a>
                           <button
                             type="button"
                             onClick={() => handleCopyOrderLink(order.id)}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold bg-dark-700 hover:bg-dark-600 text-gray-300 hover:text-neon-green border border-dark-500 transition-colors"
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-dark-700 hover:bg-dark-600 text-gray-200 hover:text-neon-green border border-dark-500 transition-colors"
                             title="Copiar link directo de descarga del pedido"
                           >
                             {copiedOrderId === order.id ? (
-                              <>
-                                <Check className="w-3.5 h-3.5 text-neon-green" />
-                                <span className="text-neon-green">¡Copiado!</span>
-                              </>
+                              <span className="text-neon-green font-bold">¡Link copiado!</span>
                             ) : (
-                              <>
-                                <Copy className="w-3.5 h-3.5" />
-                                <span>Copiar link</span>
-                              </>
+                              <span>🔗 Copiar Link</span>
                             )}
                           </button>
                         </>
                       )}
-
-                      <button
-                        type="button"
-                        onClick={() => setSelectedOrder(order)}
-                        className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-300 hover:text-blue-200 border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg transition-colors"
-                        title="Ver comprobante y detalle del pedido"
-                      >
-                        <Eye className="w-4 h-4" />
-                        <span>{(order.voucherUrl || order.voucherBase64) ? 'Ver comprobante' : 'Ver detalle'}</span>
-                      </button>
 
                       {(order.status === 'pending' || order.status === 'pending_mp') && (
                         <button
@@ -375,9 +369,9 @@ export default function AdminOrders() {
 
                       <button
                         type="button"
-                        onClick={() => handleDelete(order.id)}
+                        onClick={() => setConfirmDeleteOrder(order)}
                         disabled={deletingId === order.id}
-                        className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 border border-dark-500 hover:border-red-500/30 rounded-lg transition-colors inline-flex items-center justify-center disabled:opacity-40"
+                        className="ml-1 p-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 border border-dark-500 hover:border-red-500/30 rounded-lg transition-colors inline-flex items-center justify-center disabled:opacity-40"
                         title="Eliminar orden"
                       >
                         {deletingId === order.id ? (
@@ -511,6 +505,51 @@ export default function AdminOrders() {
               )}
               <button onClick={() => setSelectedOrder(null)} className="btn-outline-neon py-2.5 px-4 text-sm">
                 Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de confirmación para eliminar orden */}
+      {confirmDeleteOrder && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => { if (!deletingId) setConfirmDeleteOrder(null); }}
+        >
+          <div
+            className="bg-dark-800 border border-red-500/40 rounded-2xl p-6 max-w-sm w-full shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 text-red-400 mb-3">
+              <div className="p-2.5 bg-red-500/10 rounded-full border border-red-500/30 flex-shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-black text-white text-base">¿Eliminar esta orden?</h3>
+                <p className="text-xs text-red-400/90">Esta acción es permanente</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-300 mb-5">
+              Se eliminará el pedido de <strong className="text-white">{confirmDeleteOrder.cliente?.nombre || 'Cliente'}</strong> por <strong className="text-neon-green">{formatPrice(confirmDeleteOrder.total)}</strong>.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteOrder(null)}
+                disabled={Boolean(deletingId)}
+                className="btn-outline-neon flex-1 text-sm py-2"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDelete(confirmDeleteOrder.id)}
+                disabled={Boolean(deletingId)}
+                className="flex-1 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm disabled:opacity-50"
+              >
+                {deletingId ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                Sí, eliminar
               </button>
             </div>
           </div>
