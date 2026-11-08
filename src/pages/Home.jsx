@@ -345,18 +345,18 @@ export default function Home() {
   return (
     <div className="min-h-screen">
       {/* Hero */}
-      <section className="relative pt-20 pb-6 px-4 overflow-hidden">
+      <section className="relative pt-[4.5rem] pb-3 px-4 overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-dark-900 via-dark-800 to-dark-900" />
-        <div className="hidden md:block absolute top-12 left-1/4 w-96 h-96 bg-neon-green/5 rounded-full blur-3xl pointer-events-none" />
-        <div className="hidden md:block absolute bottom-0 right-1/4 w-64 h-64 bg-neon-green/3 rounded-full blur-3xl pointer-events-none" />
+        <div className="hidden md:block absolute top-8 left-1/4 w-80 h-80 bg-neon-green/5 rounded-full blur-3xl pointer-events-none" />
+        <div className="hidden md:block absolute bottom-0 right-1/4 w-56 h-56 bg-neon-green/3 rounded-full blur-3xl pointer-events-none" />
 
         <div className="relative max-w-4xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 bg-neon-green/10 border border-neon-green/30 rounded-full px-3.5 py-1.5 mb-3.5">
+          <div className="inline-flex items-center gap-2 bg-neon-green/10 border border-neon-green/30 rounded-full px-3 py-1 mb-2">
             <div className="w-2 h-2 bg-neon-green rounded-full animate-pulse" />
-            <span className="text-neon-green text-xs sm:text-sm font-medium">Fotografía deportiva profesional</span>
+            <span className="text-neon-green text-xs font-medium">Fotografía deportiva profesional</span>
           </div>
 
-          <h1 className="text-4xl sm:text-6xl font-black text-white mb-3 leading-none tracking-tight">
+          <h1 className="text-3xl sm:text-5xl font-black text-white mb-2 leading-[0.95] tracking-tight">
             CIANCIA
             <br />
             <span className="text-neon-green" style={{ textShadow: '0 0 40px rgba(57,255,20,0.5)' }}>
@@ -364,50 +364,50 @@ export default function Home() {
             </span>
           </h1>
 
-          <p className="text-gray-400 text-base sm:text-lg mb-5 max-w-2xl mx-auto leading-relaxed">
+          <p className="text-gray-400 text-sm sm:text-base mb-3.5 max-w-2xl mx-auto leading-snug">
             Fotos y videos de tus eventos deportivos y tomas de dron. Encontrá tu dorsal o buscate con una selfie,
             explorá con la lupa HD y comprá sin complicaciones.
           </p>
 
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <a href="#albums" className="btn-neon py-2.5 px-5 inline-flex items-center justify-center gap-2">
-              <Camera className="w-5 h-5" />
+          <div className="flex flex-col sm:flex-row gap-2.5 justify-center">
+            <a href="#albums" className="btn-neon py-2 px-4 text-sm inline-flex items-center justify-center gap-2">
+              <Camera className="w-4 h-4" />
               Ver Álbumes
             </a>
             <button
               type="button"
               onClick={() => setActiveModal('como-funciona')}
-              className="btn-outline-neon py-2.5 px-5 inline-flex items-center justify-center gap-2"
+              className="btn-outline-neon py-2 px-4 text-sm inline-flex items-center justify-center gap-2"
             >
-              <Zap className="w-5 h-5" />
+              <Zap className="w-4 h-4" />
               ¿Cómo funciona?
             </button>
           </div>
         </div>
       </section>
 
-      {/* Features (4 tarjetas interactivas) */}
-      <section id="como-funciona" className="py-6 px-4 border-t border-dark-700/70">
-        <div className="max-w-6xl mx-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+      {/* Features (4 tarjetas interactivas compactas) */}
+      <section id="como-funciona" className="py-3 px-4 border-t border-dark-700/70">
+        <div className="max-w-6xl mx-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
           {FEATURES.map(({ id, icon: Icon, title, desc, badge }) => (
             <button
               key={id}
               type="button"
               onClick={() => setActiveModal(id)}
-              className="group text-center p-4 rounded-2xl bg-dark-800/80 border border-dark-600 hover:border-neon-green hover:shadow-neon-sm hover:-translate-y-1 transition-all duration-300 cursor-pointer flex flex-col items-center focus:outline-none focus:border-neon-green"
+              className="group text-center py-3 px-3.5 rounded-xl bg-dark-800/80 border border-dark-600 hover:border-neon-green hover:shadow-neon-sm hover:-translate-y-0.5 transition-all duration-300 cursor-pointer flex flex-col items-center focus:outline-none focus:border-neon-green"
             >
-              <span className="text-[10px] uppercase tracking-wider font-bold text-neon-green/80 bg-neon-green/10 border border-neon-green/20 px-2.5 py-0.5 rounded-full mb-2">
+              <span className="text-[9px] uppercase tracking-wider font-bold text-neon-green/80 bg-neon-green/10 border border-neon-green/20 px-2 py-0.5 rounded-full mb-1.5">
                 {badge}
               </span>
-              <div className="w-10 h-10 bg-neon-green/10 border border-neon-green/30 group-hover:bg-neon-green group-hover:text-black rounded-xl flex items-center justify-center mx-auto mb-2 transition-colors duration-300">
-                <Icon className="w-5 h-5 text-neon-green group-hover:text-black transition-colors duration-300" />
+              <div className="w-8 h-8 bg-neon-green/10 border border-neon-green/30 group-hover:bg-neon-green group-hover:text-black rounded-lg flex items-center justify-center mx-auto mb-1.5 transition-colors duration-300">
+                <Icon className="w-4 h-4 text-neon-green group-hover:text-black transition-colors duration-300" />
               </div>
-              <h3 className="font-bold text-white text-sm sm:text-base mb-1 group-hover:text-neon-green transition-colors">
+              <h3 className="font-bold text-white text-sm mb-0.5 group-hover:text-neon-green transition-colors">
                 {title}
               </h3>
-              <p className="text-gray-400 text-xs leading-relaxed flex-1">{desc}</p>
-              <span className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-neon-green opacity-80 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all">
-                Abrir detalle <ArrowRight className="w-3.5 h-3.5" />
+              <p className="text-gray-400 text-[11px] leading-snug flex-1">{desc}</p>
+              <span className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-neon-green opacity-80 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all">
+                Abrir detalle <ArrowRight className="w-3 h-3" />
               </span>
             </button>
           ))}
@@ -415,37 +415,37 @@ export default function Home() {
       </section>
 
       {/* Albums section */}
-      <section id="albums" className="py-8 px-4">
+      <section id="albums" className="pt-3 pb-10 px-4">
         <div className="max-w-7xl mx-auto">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-2xl sm:text-3xl font-black text-white">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mb-3.5">
+            <h2 className="text-xl sm:text-2xl font-black text-white">
               ÁLBUMES <span className="text-neon-green">DE EVENTOS</span>
             </h2>
-          </div>
 
-          {/* Category filter */}
-          <div className="flex gap-2 flex-wrap mb-6">
-            {categories.map(cat => (
-              <button
-                key={cat}
-                onClick={() => setFilterCat(cat)}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                  filterCat === cat
-                    ? 'bg-neon-green text-black shadow-neon-sm'
-                    : 'bg-dark-700 text-gray-400 hover:text-white border border-dark-500'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
+            {/* Category filter */}
+            <div className="flex gap-1.5 flex-wrap">
+              {categories.map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setFilterCat(cat)}
+                  className={`px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all ${
+                    filterCat === cat
+                      ? 'bg-neon-green text-black shadow-neon-sm'
+                      : 'bg-dark-700 text-gray-400 hover:text-white border border-dark-500'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
           </div>
 
           {loading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {[...Array(4)].map((_, i) => (
                 <div key={i} className="card-dark animate-pulse">
-                  <div className="h-52 bg-dark-600" />
-                  <div className="p-4 space-y-2">
+                  <div className="h-44 bg-dark-600" />
+                  <div className="p-3 space-y-2">
                     <div className="h-4 bg-dark-600 rounded w-3/4" />
                     <div className="h-3 bg-dark-600 rounded w-1/2" />
                   </div>
@@ -453,15 +453,15 @@ export default function Home() {
               ))}
             </div>
           ) : filtered.length === 0 ? (
-            <div className="text-center py-24 text-gray-400">
-              <Camera className="w-16 h-16 mx-auto mb-4 opacity-20" />
-              <p className="text-lg font-medium">No hay álbumes disponibles</p>
-              <p className="text-sm mt-1">
+            <div className="text-center py-16 text-gray-400">
+              <Camera className="w-12 h-12 mx-auto mb-3 opacity-20" />
+              <p className="text-base font-medium">No hay álbumes disponibles</p>
+              <p className="text-xs mt-1">
                 Visitá el <Link to="/admin" className="text-neon-green hover:underline">panel de admin</Link> para cargar datos de prueba.
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {filtered.map(album => (
                 <AlbumCard key={album.id} album={album} />
               ))}
