@@ -140,8 +140,10 @@ export function getLowResSampleUrl(rawUrl, { width = 800, quality = 55 } = {}) {
 
 /**
  * Obtiene la URL en Máxima Calidad (HD/4K) exclusivamente para órdenes aprobadas.
+ * Si `attachment: true`, agrega `fl_attachment` para que Cloudinary fuerce la descarga
+ * directa (`Content-Disposition: attachment`) sin abrir el archivo en una pestaña.
  */
-export function getHighResDownloadUrl(rawUrl) {
+export function getHighResDownloadUrl(rawUrl, { attachment = false } = {}) {
   if (!rawUrl || typeof rawUrl !== 'string') return '';
 
   if (rawUrl.includes('res.cloudinary.com') && rawUrl.includes('/image/upload/')) {
@@ -153,7 +155,23 @@ export function getHighResDownloadUrl(rawUrl) {
         firstSeg.includes(',') ||
         /^(w_|h_|c_|q_|f_|g_|ar_|e_|fl_|bo_|r_|o_|a_|b_)/.test(firstSeg);
       const cleanPath = looksLikeTransform ? segments.slice(1).join('/') : rest;
-      return `${prefix}/image/upload/f_auto,q_auto:best/${cleanPath}`;
+      const flags = attachment ? 'fl_attachment,q_auto:best' : 'q_auto:best';
+      return `${prefix}/image/upload/${flags}/${cleanPath}`;
+    }
+  }
+
+  if (rawUrl.includes('res.cloudinary.com') && rawUrl.includes('/video/upload/')) {
+    const [prefix, rest] = rawUrl.split('/video/upload/');
+    if (rest) {
+      const segments = rest.split('/');
+      const firstSeg = segments[0] || '';
+      const looksLikeTransform =
+        firstSeg.includes(',') ||
+        /^(w_|h_|c_|q_|f_|g_|ar_|e_|fl_|bo_|r_|o_|a_|b_|so_)/.test(firstSeg);
+      const cleanPath = looksLikeTransform ? segments.slice(1).join('/') : rest;
+      return attachment
+        ? `${prefix}/video/upload/fl_attachment/${cleanPath}`
+        : `${prefix}/video/upload/${cleanPath}`;
     }
   }
 

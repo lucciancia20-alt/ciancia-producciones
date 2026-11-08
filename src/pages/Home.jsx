@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { collection, getDocs, query, orderBy, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import AlbumCard from '../components/AlbumCard';
 import { getLowResSampleUrl, getHighResDownloadUrl } from '../services/cloudinary';
@@ -177,6 +177,36 @@ export default function Home() {
   const [orderResults, setOrderResults]     = useState(null); // null | Order[]
   const [orderError, setOrderError]         = useState('');
   const [downloadingId, setDownloadingId]   = useState(null);
+  const [downloadingAllOrder, setDownloadingAllOrder] = useState(null); // { orderId, current, total } | null
+  const orderUnsubsRef = useRef([]);
+
+  // Sanitiza una orden para no exponer URLs originales mientras está pendiente
+  const sanitizeOrderForClient = useCallback((id, data) => {
+    const isApproved = data.status === 'approved' || data.downloadEnabled === true;
+    const safeItems = (data.items || []).map(it => {
+      if (!isApproved) {
+        return {
+          id:       it.id,
+          fileName: it.fileName,
+          type:     it.type,
+          price:    it.price,
+        };
+      }
+      return it;
+    });
+    return { id, ...data, items: safeItems };
+  }, []);
+
+  const clearOrderListeners = useCallback(() => {
+    orderUnsubsRef.current.forEach(unsub => {
+      try { unsub(); } catch { /* noop */ }
+    });
+    orderUnsubsRef.current = [];
+  }, []);
+
+  useEffect(() => {
+    return () => clearOrderListeners();
+  }, [clearOrderListeners]);
 
   useEffect(() => {
     async function load() {
@@ -221,25 +251,26 @@ export default function Home() {
     }, 80);
   };
 
-  // ─── Buscar pedidos en Firestore por Email o ID de orden ──────────────────
+  // ─── Buscar pedidos en Firestore por Email o ID de orden (con actualización en vivo) ──
   const runOrderLookup = useCallback(async (rawQuery) => {
     const q = String(rawQuery || '').trim();
     if (!q) return;
 
+    clearOrderListeners();
     setOrderLoading(true);
     setOrderError('');
     setOrderResults(null);
 
     try {
       const qLower = q.toLowerCase();
-      const matched = [];
+      const matchedDocs = [];
 
       // 1) Si no contiene '@' y parece un ID directo, intentamos buscar el documento por ID
       if (!q.includes('@') && q.length >= 6) {
         try {
           const directSnap = await getDoc(doc(db, 'orders', q));
           if (directSnap.exists()) {
-            matched.push({ id: directSnap.id, ...directSnap.data() });
+            matchedDocs.push({ id: directSnap.id, data: directSnap.data() });
           }
         } catch {
           // continuar con búsqueda general
@@ -247,26 +278,42 @@ export default function Home() {
       }
 
       // 2) Búsqueda por email del cliente o coincidencia parcial de ID
-      if (matched.length === 0) {
+      if (matchedDocs.length === 0) {
         const snap = await getDocs(query(collection(db, 'orders'), orderBy('createdAt', 'desc')));
         snap.docs.forEach(d => {
           const data = d.data();
           const email = String(data.cliente?.email || data.clienteEmailLower || '').trim().toLowerCase();
           const idMatch = d.id.toLowerCase() === qLower || (qLower.length >= 6 && d.id.toLowerCase().includes(qLower));
           if (email === qLower || idMatch) {
-            matched.push({ id: d.id, ...data });
+            matchedDocs.push({ id: d.id, data });
           }
         });
       }
 
-      setOrderResults(matched);
+      setOrderResults(matchedDocs.map(m => sanitizeOrderForClient(m.id, m.data)));
+
+      // Suscripción en tiempo real a cada orden encontrada para reflejar aprobación al instante
+      matchedDocs.forEach(m => {
+        const unsub = onSnapshot(
+          doc(db, 'orders', m.id),
+          (docSnap) => {
+            if (!docSnap.exists()) return;
+            const freshOrder = sanitizeOrderForClient(docSnap.id, docSnap.data());
+            setOrderResults(prev =>
+              prev ? prev.map(o => (o.id === freshOrder.id ? freshOrder : o)) : [freshOrder]
+            );
+          },
+          () => {}
+        );
+        orderUnsubsRef.current.push(unsub);
+      });
     } catch (err) {
       console.error(err);
       setOrderError('No se pudo consultar tu pedido en este momento. Verificá tu conexión.');
     } finally {
       setOrderLoading(false);
     }
-  }, []);
+  }, [clearOrderListeners, sanitizeOrderForClient]);
 
   const handleSearchOrders = async (e) => {
     e.preventDefault();
@@ -289,53 +336,81 @@ export default function Home() {
     }
   }, [runOrderLookup]);
 
-  // ─── Descarga limpia del archivo original HD sin marca de agua ─────────────
+  // ─── Descarga limpia y forzada del archivo original HD/4K sin marca de agua ─
   const handleDownloadOriginal = async (orderId, item) => {
     const key = `${orderId}_${item.id}`;
     setDownloadingId(key);
     try {
-      let targetUrl = item.url;
+      let rawOriginalUrl = null;
 
-      // Fallback para órdenes antiguas que solo guardaron thumb: buscamos el doc original en 'media'
-      if (!targetUrl && item.id) {
+      // 1) Consultamos primero el documento original en 'media' para garantizar la URL maestra HD/4K
+      if (item.id) {
         try {
           const mediaSnap = await getDoc(doc(db, 'media', item.id));
           if (mediaSnap.exists()) {
-            targetUrl = mediaSnap.data().url;
+            const mData = mediaSnap.data();
+            rawOriginalUrl = mData.secure_url || mData.url;
           }
         } catch {
-          // fallback a thumb
+          // continúa con item.url de la orden
         }
       }
-      targetUrl = targetUrl || item.thumb;
-      if (!targetUrl) throw new Error('URL no disponible');
 
-      // Aseguramos entregar el original en máxima calidad (HD/4K) para pedidos aprobados
-      if (item.type !== 'video') {
-        targetUrl = getHighResDownloadUrl(targetUrl);
-      }
+      rawOriginalUrl = rawOriginalUrl || item.url;
+      if (!rawOriginalUrl) throw new Error('URL original no disponible');
 
-      // Intentamos descargar como Blob para forzar la descarga directa con su nombre original
+      const hdUrl         = getHighResDownloadUrl(rawOriginalUrl, { attachment: false });
+      const attachmentUrl = getHighResDownloadUrl(rawOriginalUrl, { attachment: true });
+      const cleanName     = item.fileName || `ciancia-${item.id}.${item.type === 'video' ? 'mp4' : 'jpg'}`;
+
+      // 2) Descarga directa mediante fetch -> Blob -> <a download>
       try {
-        const resp = await fetch(targetUrl);
+        const resp = await fetch(hdUrl, { mode: 'cors' });
         if (!resp.ok) throw new Error('Fetch status ' + resp.status);
         const blob = await resp.blob();
         const blobUrl = URL.createObjectURL(blob);
         const a = document.createElement('a');
+        a.style.display = 'none';
         a.href = blobUrl;
-        a.download = item.fileName || `ciancia-${item.id}.${item.type === 'video' ? 'mp4' : 'jpg'}`;
+        a.download = cleanName;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 3000);
       } catch {
-        // Fallback si el servidor externo bloquea CORS en fetch: abrir original en pestaña nueva
-        window.open(targetUrl, '_blank', 'noopener,noreferrer');
+        // 3) Fallback garantizado sin abrir pestaña: URL con fl_attachment (Content-Disposition: attachment)
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = attachmentUrl;
+        a.download = cleanName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
       }
     } catch (err) {
       alert('No se pudo iniciar la descarga: ' + err.message);
     } finally {
       setDownloadingId(null);
+    }
+  };
+
+  // ─── Descargar todas las fotos/videos de una orden aprobada en lote ────────
+  const handleDownloadAll = async (order) => {
+    const itemsList = order?.items || [];
+    if (itemsList.length === 0) return;
+
+    setDownloadingAllOrder({ orderId: order.id, current: 0, total: itemsList.length });
+    try {
+      for (let idx = 0; idx < itemsList.length; idx++) {
+        setDownloadingAllOrder({ orderId: order.id, current: idx + 1, total: itemsList.length });
+        await handleDownloadOriginal(order.id, itemsList[idx]);
+        // Pausa breve entre descargas para que el navegador no bloquee múltiples descargas seguidas
+        if (idx < itemsList.length - 1) {
+          await new Promise(res => setTimeout(res, 450));
+        }
+      }
+    } finally {
+      setDownloadingAllOrder(null);
     }
   };
 
@@ -678,14 +753,51 @@ export default function Home() {
                             </div>
 
                             {!isApproved ? (
-                              <p className="text-xs text-yellow-300/90 bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-2.5">
-                                Estamos verificando tu comprobante de pago. Apenas sea aprobado por administración, vas a poder descargar todos los archivos originales desde acá mismo.
-                              </p>
-                            ) : (
                               <div className="space-y-2">
-                                <p className="text-xs text-neon-green font-semibold">
-                                  ¡Pago verificado! Descargá tus archivos en calidad original sin marca de agua:
+                                <p className="text-xs text-yellow-300/90 bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-2.5">
+                                  Estamos verificando tu comprobante de pago. Apenas sea aprobado por administración, esta pantalla se actualizará automáticamente y podrás descargar los {(order.items || []).length} archivo(s) en calidad original HD/4K.
                                 </p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {(order.items || []).map((item, idx) => (
+                                    <span
+                                      key={item.id || idx}
+                                      className="inline-flex items-center gap-1.5 text-[11px] text-gray-400 bg-dark-800 border border-dark-600 rounded-md px-2.5 py-1"
+                                    >
+                                      <Clock className="w-3 h-3 text-yellow-400 flex-shrink-0" />
+                                      <span className="truncate max-w-[180px]">{item.fileName}</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="space-y-2.5">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <p className="text-xs text-neon-green font-semibold">
+                                    ¡Pago verificado! Descargá tus archivos originales en Máxima Calidad (HD/4K) sin marca de agua:
+                                  </p>
+                                  {(order.items || []).length > 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDownloadAll(order)}
+                                      disabled={downloadingAllOrder?.orderId === order.id}
+                                      className="px-3 py-1.5 rounded-lg bg-neon-green text-black font-extrabold text-xs hover:shadow-neon-sm transition-all inline-flex items-center gap-1.5 disabled:opacity-60"
+                                    >
+                                      {downloadingAllOrder?.orderId === order.id ? (
+                                        <>
+                                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                          <span>
+                                            Descargando {downloadingAllOrder.current}/{downloadingAllOrder.total}…
+                                          </span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Download className="w-3.5 h-3.5" />
+                                          <span>Descargar todas ({order.items.length})</span>
+                                        </>
+                                      )}
+                                    </button>
+                                  )}
+                                </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                   {(order.items || []).map(item => {
                                     const dlKey = `${order.id}_${item.id}`;
@@ -703,21 +815,23 @@ export default function Home() {
                                         />
                                         <div className="flex-1 min-w-0">
                                           <p className="text-xs text-white font-medium truncate">{item.fileName}</p>
-                                          <p className="text-[10px] text-gray-400 uppercase">{item.type === 'video' ? 'Video HD' : 'Foto HD'}</p>
+                                          <p className="text-[10px] text-neon-green font-semibold uppercase">
+                                            {item.type === 'video' ? 'Video Original HD' : 'Original HD / 4K'}
+                                          </p>
                                         </div>
                                         <button
                                           type="button"
                                           onClick={() => handleDownloadOriginal(order.id, item)}
                                           disabled={isDownloading}
                                           className="px-2.5 py-1.5 rounded-lg bg-neon-green text-black font-bold text-xs hover:bg-neon-green/90 transition-colors flex items-center gap-1 flex-shrink-0"
-                                          title="Descargar archivo original sin marca de agua"
+                                          title="Descargar archivo original en máxima resolución sin marca de agua"
                                         >
                                           {isDownloading ? (
                                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
                                           ) : (
                                             <Download className="w-3.5 h-3.5" />
                                           )}
-                                          HD
+                                          Descargar
                                         </button>
                                       </div>
                                     );

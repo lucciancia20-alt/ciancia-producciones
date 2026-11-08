@@ -51,6 +51,7 @@ export default function AdminOrders() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [approvingId, setApprovingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [copiedOrderId, setCopiedOrderId] = useState(null);
   const [liveAlertOrder, setLiveAlertOrder] = useState(null);
   const [notifPerm, setNotifPerm] = useState(() => (typeof window !== 'undefined' && 'Notification' in window) ? Notification.permission : 'unsupported');
   const initialOrdersLoadedRef = useRef(false);
@@ -118,7 +119,28 @@ export default function AdminOrders() {
     }
   };
 
-  const filtered = filterStatus === 'all' ? orders : orders.filter(o => o.status === filterStatus);
+  const handleCopyOrderLink = async (orderId) => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://ciancia-producciones.onrender.com';
+    const link = `${origin}/?pedido=${orderId}`;
+    try {
+      await navigator.clipboard.writeText(link);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = link;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    setCopiedOrderId(orderId);
+    setTimeout(() => setCopiedOrderId(null), 2200);
+  };
+
+  const filtered = filterStatus === 'all'
+    ? orders
+    : filterStatus === 'pending'
+      ? orders.filter(o => o.status === 'pending' || o.status === 'pending_mp')
+      : orders.filter(o => o.status === filterStatus);
 
   return (
     <div className="min-h-screen bg-dark-900 p-4 pt-6">
@@ -264,11 +286,22 @@ export default function AdminOrders() {
                 <div key={order.id} className="card-dark p-5">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-3 mb-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold border ${sc.color}`}>
                           <StatusIcon className="w-3 h-3" /> {sc.label}
                         </span>
-                        <span className="text-gray-500 text-xs capitalize">{order.paymentMethod === 'transfer' ? 'Transferencia' : 'MercadoPago'}</span>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${
+                          order.paymentMethod === 'transfer'
+                            ? 'bg-neon-green/10 text-neon-green border-neon-green/30'
+                            : 'bg-blue-500/15 text-blue-300 border-blue-500/30'
+                        }`}>
+                          {order.paymentMethod === 'transfer' ? 'Transferencia bancaria' : 'Mercado Pago'}
+                        </span>
+                        {(order.voucherUrl || order.voucherBase64) ? (
+                          <span className="text-[11px] text-emerald-400 font-medium">📎 Comprobante adjunto</span>
+                        ) : (
+                          <span className="text-[11px] text-yellow-400/80">Sin comprobante</span>
+                        )}
                       </div>
                       <p className="font-bold text-white">{order.cliente?.nombre || 'Sin nombre'}</p>
                       <p className="text-gray-400 text-sm">
@@ -284,27 +317,47 @@ export default function AdminOrders() {
                       <span className="text-neon-green font-black text-lg">{formatPrice(order.total)}</span>
 
                       {order.status === 'approved' && (
-                        <a
-                          href={buildWhatsAppOrderUrl(order)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold bg-green-500/15 hover:bg-green-500/25 text-green-400 border border-green-500/30 transition-colors"
-                          title="Enviar link directo de descarga por WhatsApp"
-                        >
-                          <MessageCircle className="w-4 h-4" />
-                          <span>Enviar WhatsApp</span>
-                        </a>
+                        <>
+                          <a
+                            href={buildWhatsAppOrderUrl(order)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold bg-green-500/15 hover:bg-green-500/25 text-green-400 border border-green-500/30 transition-colors"
+                            title="Enviar link directo de descarga por WhatsApp"
+                          >
+                            <MessageCircle className="w-4 h-4" />
+                            <span>Enviar WhatsApp</span>
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyOrderLink(order.id)}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold bg-dark-700 hover:bg-dark-600 text-gray-300 hover:text-neon-green border border-dark-500 transition-colors"
+                            title="Copiar link directo de descarga del pedido"
+                          >
+                            {copiedOrderId === order.id ? (
+                              <>
+                                <Check className="w-3.5 h-3.5 text-neon-green" />
+                                <span className="text-neon-green">¡Copiado!</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3.5 h-3.5" />
+                                <span>Copiar link</span>
+                              </>
+                            )}
+                          </button>
+                        </>
                       )}
 
-                      {(order.voucherUrl || order.voucherBase64) && (
-                        <button
-                          onClick={() => setSelectedOrder(order)}
-                          className="p-2 text-blue-400 hover:text-blue-300 border border-blue-500/30 bg-blue-500/10 rounded-lg transition-colors"
-                          title="Ver comprobante"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedOrder(order)}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-300 hover:text-blue-200 border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg transition-colors"
+                        title="Ver comprobante y detalle del pedido"
+                      >
+                        <Eye className="w-4 h-4" />
+                        <span>{(order.voucherUrl || order.voucherBase64) ? 'Ver comprobante' : 'Ver detalle'}</span>
+                      </button>
 
                       {(order.status === 'pending' || order.status === 'pending_mp') && (
                         <button
@@ -342,33 +395,57 @@ export default function AdminOrders() {
         )}
       </div>
 
-      {/* Voucher modal */}
+      {/* Voucher & Order Detail Modal */}
       {selectedOrder && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={() => setSelectedOrder(null)}>
-          <div className="bg-dark-800 border border-dark-500 rounded-2xl p-6 max-w-lg w-full" onClick={e => e.stopPropagation()}>
-            <h3 className="font-bold text-white text-lg mb-1">Comprobante</h3>
-            <p className="text-gray-400 text-sm mb-4">
-              {selectedOrder.cliente?.nombre} · {formatPrice(selectedOrder.total)}
-            </p>
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto" onClick={() => setSelectedOrder(null)}>
+          <div className="bg-dark-800 border border-dark-500 rounded-2xl p-6 max-w-lg w-full my-8 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <h3 className="font-bold text-white text-lg">Comprobante y Detalle de Orden</h3>
+                <p className="text-gray-400 text-sm">
+                  {selectedOrder.cliente?.nombre} · <strong className="text-neon-green">{formatPrice(selectedOrder.total)}</strong> ·{' '}
+                  <span className="text-gray-300">{selectedOrder.paymentMethod === 'transfer' ? 'Transferencia bancaria' : 'Mercado Pago'}</span>
+                </p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {selectedOrder.cliente?.email} {selectedOrder.cliente?.telefono ? `· 📱 ${selectedOrder.cliente.telefono}` : ''}
+                </p>
+              </div>
+              <button onClick={() => setSelectedOrder(null)} className="text-gray-400 hover:text-white p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-            {/* Voucher — soporta URL nueva (Cloudinary) y base64 legacy */}
+            {/* Voucher — soporta URL de Cloudinary (imagen o PDF) y base64 legacy */}
             {selectedOrder.voucherUrl ? (
-              <div className="space-y-3">
-                <img
-                  src={selectedOrder.voucherUrl}
-                  alt="Comprobante"
-                  className="w-full rounded-lg max-h-96 object-contain"
-                  onError={e => { e.target.style.display = 'none'; }}
-                />
-                <a
-                  href={selectedOrder.voucherUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="btn-outline-neon inline-flex items-center gap-2 text-sm"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  Abrir en nueva pestaña
-                </a>
+              <div className="space-y-3 bg-dark-900/80 border border-dark-600 rounded-xl p-3">
+                {selectedOrder.voucherUrl.toLowerCase().endsWith('.pdf') || selectedOrder.voucherName?.toLowerCase().endsWith('.pdf') ? (
+                  <div className="p-6 bg-dark-700 rounded-lg text-center space-y-2">
+                    <p className="text-white font-semibold text-sm">📄 Comprobante en PDF</p>
+                    <p className="text-gray-400 text-xs">{selectedOrder.voucherName || 'comprobante.pdf'}</p>
+                  </div>
+                ) : (
+                  <a href={selectedOrder.voucherUrl} target="_blank" rel="noreferrer" title="Clic para ampliar a pantalla completa">
+                    <img
+                      src={selectedOrder.voucherUrl}
+                      alt="Comprobante de pago"
+                      className="w-full rounded-lg max-h-96 object-contain bg-black/40 cursor-zoom-in"
+                    />
+                  </a>
+                )}
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <span className="text-xs text-gray-400 truncate">
+                    {selectedOrder.voucherName || 'Comprobante adjunto'}
+                  </span>
+                  <a
+                    href={selectedOrder.voucherUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn-outline-neon py-1.5 px-3 inline-flex items-center gap-1.5 text-xs"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    Abrir / Ampliar comprobante
+                  </a>
+                </div>
               </div>
             ) : selectedOrder.voucherBase64?.startsWith('data:image') ? (
               <img src={selectedOrder.voucherBase64} alt="Comprobante" className="w-full rounded-lg max-h-96 object-contain" />
@@ -378,17 +455,63 @@ export default function AdminOrders() {
                 <a href={selectedOrder.voucherBase64} download={selectedOrder.voucherName} className="btn-outline-neon mt-4 inline-flex">Descargar PDF</a>
               </div>
             ) : (
-              <p className="text-gray-400 text-center py-8">Sin comprobante</p>
+              <div className="p-6 bg-dark-700/60 border border-yellow-500/20 rounded-xl text-center">
+                <p className="text-yellow-300/90 text-sm font-medium">El cliente no adjuntó archivo de comprobante</p>
+                <p className="text-gray-400 text-xs mt-1">Verificá el ingreso en tu cuenta bancaria o Mercado Pago antes de aprobar.</p>
+              </div>
             )}
 
-            <div className="flex gap-3 mt-5">
-              {(selectedOrder.status === 'pending' || selectedOrder.status === 'pending_mp') && (
-                <button onClick={() => handleApprove(selectedOrder.id)} disabled={approvingId === selectedOrder.id} className="btn-neon flex-1 flex items-center justify-center gap-2">
+            {/* Archivos incluidos en el pedido */}
+            {selectedOrder.items?.length > 0 && (
+              <div className="mt-4">
+                <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-2">
+                  Archivos del pedido ({selectedOrder.items.length})
+                </p>
+                <div className="max-h-28 overflow-y-auto space-y-1 pr-1">
+                  {selectedOrder.items.map((it, idx) => (
+                    <div key={it.id || idx} className="flex items-center justify-between text-xs bg-dark-700/70 px-2.5 py-1.5 rounded-lg">
+                      <span className="text-gray-200 truncate">{it.fileName}</span>
+                      <span className="text-neon-green font-mono ml-2">{formatPrice(it.price)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2.5 mt-5">
+              {(selectedOrder.status === 'pending' || selectedOrder.status === 'pending_mp') ? (
+                <button
+                  onClick={() => handleApprove(selectedOrder.id)}
+                  disabled={approvingId === selectedOrder.id}
+                  className="btn-neon flex-1 flex items-center justify-center gap-2 text-sm py-2.5"
+                >
                   {approvingId === selectedOrder.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                  Aprobar
+                  Aprobar y habilitar descarga
                 </button>
+              ) : (
+                <>
+                  <a
+                    href={buildWhatsAppOrderUrl(selectedOrder)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-xs font-bold bg-green-500/20 hover:bg-green-500/30 text-green-400 border border-green-500/40 transition-colors"
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    Avisar por WhatsApp
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyOrderLink(selectedOrder.id)}
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-xs font-semibold bg-dark-700 hover:bg-dark-600 text-gray-200 border border-dark-500 transition-colors"
+                  >
+                    {copiedOrderId === selectedOrder.id ? <Check className="w-4 h-4 text-neon-green" /> : <Copy className="w-4 h-4" />}
+                    {copiedOrderId === selectedOrder.id ? '¡Link copiado!' : 'Copiar link'}
+                  </button>
+                </>
               )}
-              <button onClick={() => setSelectedOrder(null)} className="btn-outline-neon flex-1">Cerrar</button>
+              <button onClick={() => setSelectedOrder(null)} className="btn-outline-neon py-2.5 px-4 text-sm">
+                Cerrar
+              </button>
             </div>
           </div>
         </div>

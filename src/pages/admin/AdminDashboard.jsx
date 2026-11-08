@@ -272,20 +272,23 @@ export default function AdminDashboard() {
                       <p className="text-sm text-gray-400 mt-1">
                         {order.items?.length} ítems •
                         <span className="text-neon-green font-bold ml-1">{formatPrice(order.total)}</span> •
-                        <span className="ml-1 capitalize">{order.paymentMethod === 'transfer' ? 'Transferencia' : 'MercadoPago'}</span>
+                        <span className="ml-1 capitalize">{order.paymentMethod === 'transfer' ? 'Transferencia bancaria' : 'Mercado Pago'}</span>
+                        {(order.voucherUrl || order.voucherBase64) ? (
+                          <span className="ml-2 text-xs text-emerald-400 font-medium">· 📎 Comprobante adjunto</span>
+                        ) : (
+                          <span className="ml-2 text-xs text-yellow-400/80">· Sin comprobante</span>
+                        )}
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-3">
-                      {(order.voucherUrl || order.voucherBase64) && (
-                        <button
-                          onClick={() => setSelectedOrder(order)}
-                          className="flex items-center gap-2 text-blue-400 hover:text-blue-300 border border-blue-500/30 bg-blue-500/10 px-3 py-2 rounded-lg text-sm transition-colors"
-                        >
-                          <Eye className="w-4 h-4" />
-                          Ver comprobante
-                        </button>
-                      )}
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <button
+                        onClick={() => setSelectedOrder(order)}
+                        className="flex items-center gap-2 text-blue-300 hover:text-blue-200 border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-2 rounded-lg text-sm transition-colors"
+                      >
+                        <Eye className="w-4 h-4" />
+                        {(order.voucherUrl || order.voucherBase64) ? 'Ver comprobante' : 'Ver detalle'}
+                      </button>
                       <button
                         onClick={() => handleApproveOrder(order.id)}
                         disabled={approvingId === order.id}
@@ -399,23 +402,37 @@ export default function AdminDashboard() {
             <h3 className="font-bold text-white text-lg mb-1">Comprobante de pago</h3>
             <p className="text-gray-400 text-sm mb-4">{selectedOrder.cliente?.nombre} — {formatPrice(selectedOrder.total)}</p>
 
-            {/* Voucher — soporta URL nueva (Cloudinary) y base64 legacy */}
+            {/* Voucher — soporta URL de Cloudinary (imagen o PDF) y base64 legacy */}
             {selectedOrder.voucherUrl ? (
-              <div className="space-y-3">
-                <img
-                  src={selectedOrder.voucherUrl}
-                  alt="Comprobante"
-                  className="w-full rounded-lg max-h-96 object-contain"
-                  onError={e => { e.target.style.display = 'none'; }}
-                />
-                <a
-                  href={selectedOrder.voucherUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="btn-outline-neon inline-flex items-center gap-2 text-sm"
-                >
-                  Abrir comprobante en nueva pestaña
-                </a>
+              <div className="space-y-3 bg-dark-900/80 border border-dark-600 rounded-xl p-3">
+                {selectedOrder.voucherUrl.toLowerCase().endsWith('.pdf') || selectedOrder.voucherName?.toLowerCase().endsWith('.pdf') ? (
+                  <div className="p-6 bg-dark-700 rounded-lg text-center space-y-2">
+                    <p className="text-white font-semibold text-sm">📄 Comprobante en PDF</p>
+                    <p className="text-gray-400 text-xs">{selectedOrder.voucherName || 'comprobante.pdf'}</p>
+                  </div>
+                ) : (
+                  <a href={selectedOrder.voucherUrl} target="_blank" rel="noreferrer" title="Clic para ampliar a pantalla completa">
+                    <img
+                      src={selectedOrder.voucherUrl}
+                      alt="Comprobante de pago"
+                      className="w-full rounded-lg max-h-96 object-contain bg-black/40 cursor-zoom-in"
+                    />
+                  </a>
+                )}
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <span className="text-xs text-gray-400 truncate">
+                    {selectedOrder.voucherName || 'Comprobante adjunto'}
+                  </span>
+                  <a
+                    href={selectedOrder.voucherUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn-outline-neon py-1.5 px-3 inline-flex items-center gap-1.5 text-xs"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    Abrir / Ampliar comprobante
+                  </a>
+                </div>
               </div>
             ) : selectedOrder.voucherBase64?.startsWith('data:image') ? (
               <img src={selectedOrder.voucherBase64} alt="Comprobante" className="w-full rounded-lg max-h-96 object-contain" />
@@ -431,7 +448,10 @@ export default function AdminDashboard() {
                 </a>
               </div>
             ) : (
-              <p className="text-gray-400 text-center py-8">Sin comprobante adjunto</p>
+              <div className="p-6 bg-dark-700/60 border border-yellow-500/20 rounded-xl text-center">
+                <p className="text-yellow-300/90 text-sm font-medium">El cliente no adjuntó archivo de comprobante</p>
+                <p className="text-gray-400 text-xs mt-1">Verificá el ingreso en tu cuenta bancaria o Mercado Pago antes de aprobar.</p>
+              </div>
             )}
 
             <div className="flex gap-3 mt-5">
