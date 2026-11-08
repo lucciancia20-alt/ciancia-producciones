@@ -54,14 +54,14 @@ function CopyButton({ text }) {
   );
 }
 
-/** Fila de dato bancario con botón copiar */
+/** Fila de dato bancario con botón copiar y altura fija uniforme */
 function BankRow({ label, value, copyable = false }) {
   if (!value) return null;
   return (
-    <div className="flex items-start justify-between gap-2">
-      <span className="text-gray-400 text-sm flex-shrink-0">{label}</span>
-      <div className="flex items-center gap-1 min-w-0">
-        <span className="text-white font-mono text-sm text-right break-all">{value}</span>
+    <div className="flex items-center justify-between gap-2 min-h-[24px]">
+      <span className="text-gray-400 text-sm flex-shrink-0 leading-none">{label}</span>
+      <div className="flex items-center gap-1 min-w-0 h-6">
+        <span className="text-white font-mono text-sm text-right break-all leading-none">{value}</span>
         {copyable && value && <CopyButton text={value} />}
       </div>
     </div>
@@ -303,62 +303,51 @@ export default function Checkout() {
                   </button>
                 </div>
 
-                {/* ── Transferencia bancaria ── */}
-                {method === 'transfer' && (
-                  <div
-                    key="transfer"
-                    className="bg-neon-green/10 border border-neon-green/30 rounded-xl p-5 space-y-3 shadow-[0_0_20px_rgba(57,255,20,0.08)] animate-fade-in-up"
+                {/* ── Tarjeta única estática de datos de pago (sin remount ni saltos de altura) ── */}
+                <div
+                  className={`rounded-xl p-5 space-y-3 border ${
+                    method === 'transfer'
+                      ? 'bg-neon-green/10 border-neon-green/30 shadow-[0_0_20px_rgba(57,255,20,0.08)]'
+                      : 'bg-blue-900/20 border-blue-500/30 shadow-[0_0_20px_rgba(59,130,246,0.08)]'
+                  }`}
+                >
+                  <p
+                    className={`flex items-center gap-2 font-semibold ${
+                      method === 'transfer' ? 'text-neon-green' : 'text-blue-300'
+                    }`}
                   >
-                    <p className="flex items-center gap-2 text-neon-green font-semibold">
-                      <span className="w-2.5 h-2.5 rounded-full bg-neon-green shadow-neon-sm flex-shrink-0" />
-                      Transferencia Bancaria{payConfig?.banco ? ` — ${payConfig.banco}` : ''}
-                    </p>
+                    <span
+                      className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                        method === 'transfer'
+                          ? 'bg-neon-green shadow-neon-sm'
+                          : 'bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.8)]'
+                      }`}
+                    />
+                    {method === 'transfer'
+                      ? `Transferencia Bancaria${payConfig?.banco ? ` — ${payConfig.banco}` : ''}`
+                      : 'Mercado Pago'}
+                  </p>
 
+                  <div className="min-h-[88px] flex flex-col justify-center">
                     {configLoading ? (
                       <div className="flex items-center gap-2 text-gray-400 text-sm">
                         <Loader2 className="w-4 h-4 animate-spin" /> Cargando datos...
                       </div>
-                    ) : (
+                    ) : method === 'transfer' ? (
                       <div className="space-y-2">
-                        <BankRow label="Titular"  value={payConfig?.titular} />
-                        <BankRow label="Banco"    value={payConfig?.banco} />
-                        <BankRow label="CBU"      value={payConfig?.cbu}    copyable />
-                        <BankRow label="Alias"    value={payConfig?.alias}  copyable />
+                        <BankRow label="Titular" value={payConfig?.titular || 'Luciano Horacio Ciancia'} />
+                        <BankRow label="Banco"   value={payConfig?.banco} />
+                        <BankRow label="CBU"     value={payConfig?.cbu}   copyable />
+                        <BankRow label="Alias"   value={payConfig?.alias} copyable />
                         {!payConfig?.cbu && !payConfig?.alias && (
                           <p className="text-yellow-400/80 text-xs">
                             Los datos bancarios aún no fueron configurados por el administrador.
                           </p>
                         )}
                       </div>
-                    )}
-
-                    <p className="text-gray-400 text-sm">
-                      Total a transferir:{' '}
-                      <strong className="text-neon-green">{formatPrice(total)}</strong>
-                    </p>
-                    <p className="text-gray-500 text-xs">
-                      Realizá la transferencia y confirmá el pedido. Recibirás acceso a la descarga cuando el pago sea verificado.
-                    </p>
-                  </div>
-                )}
-
-                {/* ── Mercado Pago ── */}
-                {method === 'mercadopago' && (
-                  <div
-                    key="mercadopago"
-                    className="bg-blue-900/20 border border-blue-500/30 rounded-xl p-5 space-y-3 shadow-[0_0_20px_rgba(59,130,246,0.08)] animate-fade-in-up"
-                  >
-                    <p className="flex items-center gap-2 text-blue-300 font-semibold">
-                      <span className="w-2.5 h-2.5 rounded-full bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.8)] flex-shrink-0" />
-                      Mercado Pago
-                    </p>
-
-                    {configLoading ? (
-                      <div className="flex items-center gap-2 text-gray-400 text-sm">
-                        <Loader2 className="w-4 h-4 animate-spin" /> Cargando datos...
-                      </div>
                     ) : (
                       <div className="space-y-2">
+                        <BankRow label="Titular"  value={payConfig?.titular || 'Luciano Horacio Ciancia'} />
                         <BankRow label="Celular"  value={payConfig?.mpCelular} copyable />
                         <BankRow label="Alias MP" value={payConfig?.mpAlias}   copyable />
                         {!payConfig?.mpCelular && !payConfig?.mpAlias && (
@@ -368,16 +357,16 @@ export default function Checkout() {
                         )}
                       </div>
                     )}
-
-                    <p className="text-gray-400 text-sm">
-                      Total a transferir:{' '}
-                      <strong className="text-neon-green">{formatPrice(total)}</strong>
-                    </p>
-                    <p className="text-gray-500 text-xs">
-                      Realizá la transferencia y confirmá el pedido. Recibirás acceso a la descarga cuando el pago sea verificado.
-                    </p>
                   </div>
-                )}
+
+                  <p className="text-gray-400 text-sm">
+                    Total a transferir:{' '}
+                    <strong className="text-neon-green">{formatPrice(total)}</strong>
+                  </p>
+                  <p className="text-gray-500 text-xs">
+                    Realizá la transferencia y confirmá el pedido. Recibirás acceso a la descarga cuando el pago sea verificado.
+                  </p>
+                </div>
 
                 {/* ── Adjuntar comprobante (común a Transferencia y Mercado Pago) ── */}
                 <div className="bg-dark-700 border border-dark-500 rounded-xl p-5">
