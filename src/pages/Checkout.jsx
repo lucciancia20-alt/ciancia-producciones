@@ -223,101 +223,110 @@ export default function Checkout() {
 
   /* ── Pantalla: checkout ── */
   return (
-    <div className="min-h-screen pt-24 pb-16 px-4">
+    <div className="min-h-screen pt-20 pb-10 px-4">
       <div className="max-w-5xl mx-auto">
-        <Link
-          to="/cart"
-          className="inline-flex items-center gap-2 text-gray-400 hover:text-neon-green transition-colors mb-6 text-sm"
-        >
-          <ArrowLeft className="w-4 h-4" /> Volver al carrito
-        </Link>
-
-        <h1 className="text-3xl font-black text-white mb-8">
-          CHECKOUT <span className="text-neon-green">/ PAGO</span>
-        </h1>
+        <div className="flex items-center justify-between gap-4 mb-4">
+          <div>
+            <Link
+              to="/cart"
+              className="inline-flex items-center gap-1.5 text-gray-400 hover:text-neon-green transition-colors mb-1 text-xs sm:text-sm"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" /> Volver al carrito
+            </Link>
+            <h1 className="text-2xl sm:text-3xl font-black text-white leading-tight">
+              CHECKOUT <span className="text-neon-green">/ PAGO</span>
+            </h1>
+          </div>
+        </div>
 
         <form onSubmit={handleSubmit}>
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
 
             {/* ── Columna izquierda ── */}
-            <div className="lg:col-span-3 space-y-6">
+            <div className="lg:col-span-3 space-y-4">
 
               {/* Datos del cliente */}
-              <div className="card-dark p-6 space-y-4">
-                <h2 className="font-bold text-white text-lg">Tus datos</h2>
+              <div className="card-dark p-4 sm:p-5 space-y-3">
+                <h2 className="font-bold text-white text-base">Tus datos</h2>
                 <div>
-                  <label className="text-sm text-gray-400 mb-1 block">Nombre completo *</label>
+                  <label className="text-xs text-gray-400 mb-1 block">Nombre completo *</label>
                   <input
                     name="nombre" value={form.nombre} onChange={handleChange}
                     autoComplete="off" autoCorrect="off" spellCheck="false" data-lpignore="true"
-                    placeholder="Juan Pérez" className="input-dark" required
+                    placeholder="Juan Pérez" className="input-dark py-2 text-sm" required
                   />
                 </div>
-                <div>
-                  <label className="text-sm text-gray-400 mb-1 block">Email *</label>
-                  <input
-                    name="email" value={form.email} onChange={handleChange}
-                    autoComplete="off" autoCorrect="off" spellCheck="false" data-lpignore="true"
-                    type="email" placeholder="juan@ejemplo.com" className="input-dark" required
-                  />
-                </div>
-                <div>
-                  <label className="text-sm text-gray-400 mb-1 block">Teléfono</label>
-                  <input
-                    name="telefono" value={form.telefono} onChange={handleChange}
-                    autoComplete="off" autoCorrect="off" spellCheck="false" data-lpignore="true"
-                    placeholder="+54 9 11 1234-5678" className="input-dark"
-                  />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Email *</label>
+                    <input
+                      name="email" value={form.email} onChange={handleChange}
+                      autoComplete="off" autoCorrect="off" spellCheck="false" data-lpignore="true"
+                      type="email" placeholder="juan@ejemplo.com" className="input-dark py-2 text-sm" required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Teléfono</label>
+                    <input
+                      name="telefono" value={form.telefono} onChange={handleChange}
+                      autoComplete="off" autoCorrect="off" spellCheck="false" data-lpignore="true"
+                      placeholder="+54 9 11 1234-5678" className="input-dark py-2 text-sm"
+                    />
+                  </div>
                 </div>
               </div>
 
               {/* Método de pago */}
-              <div className="card-dark p-6 space-y-4">
-                <h2 className="font-bold text-white text-lg">Método de pago</h2>
+              <div className="card-dark p-4 sm:p-5 space-y-3">
+                <h2 className="font-bold text-white text-base">Método de pago</h2>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <button
                     type="button" onClick={() => setMethod('transfer')}
-                    className={`p-4 rounded-xl border-2 text-left transition-all ${
+                    className={`p-3 rounded-xl border-2 text-left transition-all flex items-center gap-3 ${
                       method === 'transfer'
                         ? 'border-neon-green bg-neon-green/10'
                         : 'border-dark-500 bg-dark-700 hover:border-dark-400'
                     }`}
                   >
-                    <Banknote className={`w-7 h-7 mb-2 ${method === 'transfer' ? 'text-neon-green' : 'text-gray-400'}`} />
-                    <p className="font-bold text-white text-sm">Transferencia bancaria</p>
-                    <p className="text-xs text-gray-400 mt-0.5">CBU/Alias + comprobante</p>
+                    <Banknote className={`w-6 h-6 flex-shrink-0 ${method === 'transfer' ? 'text-neon-green' : 'text-gray-400'}`} />
+                    <div className="min-w-0">
+                      <p className="font-bold text-white text-sm leading-tight">Transferencia bancaria</p>
+                      <p className="text-xs text-gray-400 mt-0.5">CBU/Alias + comprobante</p>
+                    </div>
                   </button>
 
                   <button
                     type="button" onClick={() => setMethod('mercadopago')}
-                    className={`p-4 rounded-xl border-2 text-left transition-all ${
+                    className={`p-3 rounded-xl border-2 text-left transition-all flex items-center gap-3 ${
                       method === 'mercadopago'
                         ? 'border-neon-green bg-neon-green/10'
                         : 'border-dark-500 bg-dark-700 hover:border-dark-400'
                     }`}
                   >
-                    <CreditCard className={`w-7 h-7 mb-2 ${method === 'mercadopago' ? 'text-neon-green' : 'text-gray-400'}`} />
-                    <p className="font-bold text-white text-sm">Mercado Pago</p>
-                    <p className="text-xs text-gray-400 mt-0.5">Alias / QR + comprobante</p>
+                    <CreditCard className={`w-6 h-6 flex-shrink-0 ${method === 'mercadopago' ? 'text-neon-green' : 'text-gray-400'}`} />
+                    <div className="min-w-0">
+                      <p className="font-bold text-white text-sm leading-tight">Mercado Pago</p>
+                      <p className="text-xs text-gray-400 mt-0.5">Alias / QR + comprobante</p>
+                    </div>
                   </button>
                 </div>
 
                 {/* ── Tarjeta única estática de datos de pago (sin remount ni saltos de altura) ── */}
                 <div
-                  className={`rounded-xl p-5 space-y-3 border ${
+                  className={`rounded-xl p-4 space-y-2 border ${
                     method === 'transfer'
                       ? 'bg-neon-green/10 border-neon-green/30 shadow-[0_0_20px_rgba(57,255,20,0.08)]'
                       : 'bg-blue-900/20 border-blue-500/30 shadow-[0_0_20px_rgba(59,130,246,0.08)]'
                   }`}
                 >
                   <p
-                    className={`flex items-center gap-2 font-semibold ${
+                    className={`flex items-center gap-2 font-semibold text-sm ${
                       method === 'transfer' ? 'text-neon-green' : 'text-blue-300'
                     }`}
                   >
                     <span
-                      className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                      className={`w-2 h-2 rounded-full flex-shrink-0 ${
                         method === 'transfer'
                           ? 'bg-neon-green shadow-neon-sm'
                           : 'bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.8)]'
@@ -328,13 +337,13 @@ export default function Checkout() {
                       : 'Mercado Pago'}
                   </p>
 
-                  <div className="min-h-[88px] flex flex-col justify-center">
+                  <div className="min-h-[80px] flex flex-col justify-center">
                     {configLoading ? (
                       <div className="flex items-center gap-2 text-gray-400 text-sm">
                         <Loader2 className="w-4 h-4 animate-spin" /> Cargando datos...
                       </div>
                     ) : method === 'transfer' ? (
-                      <div className="space-y-2">
+                      <div className="space-y-1.5">
                         <BankRow label="Titular" value={payConfig?.titular || 'Luciano Horacio Ciancia'} />
                         <BankRow label="Banco"   value={payConfig?.banco} />
                         <BankRow label="CBU"     value={payConfig?.cbu}   copyable />
@@ -346,7 +355,7 @@ export default function Checkout() {
                         )}
                       </div>
                     ) : (
-                      <div className="space-y-2">
+                      <div className="space-y-1.5">
                         <BankRow label="Titular"  value={payConfig?.titular || 'Luciano Horacio Ciancia'} />
                         <BankRow label="Celular"  value={payConfig?.mpCelular} copyable />
                         <BankRow label="Alias MP" value={payConfig?.mpAlias}   copyable />
@@ -359,24 +368,26 @@ export default function Checkout() {
                     )}
                   </div>
 
-                  <p className="text-gray-400 text-sm">
-                    Total a transferir:{' '}
-                    <strong className="text-neon-green">{formatPrice(total)}</strong>
-                  </p>
-                  <p className="text-gray-500 text-xs">
-                    Realizá la transferencia y confirmá el pedido. Recibirás acceso a la descarga cuando el pago sea verificado.
-                  </p>
+                  <div className="pt-1 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-gray-300 text-xs sm:text-sm">
+                      Total a transferir:{' '}
+                      <strong className="text-neon-green">{formatPrice(total)}</strong>
+                    </p>
+                    <p className="text-gray-400 text-[11px]">
+                      Recibirás acceso a la descarga cuando el pago sea verificado.
+                    </p>
+                  </div>
                 </div>
 
                 {/* ── Adjuntar comprobante (común a Transferencia y Mercado Pago) ── */}
-                <div className="bg-dark-700 border border-dark-500 rounded-xl p-5">
-                  <label className="text-sm text-gray-400 mb-2 block">
+                <div className="bg-dark-700 border border-dark-500 rounded-xl p-3.5">
+                  <label className="text-xs sm:text-sm text-gray-300 mb-1.5 block font-medium">
                     Adjuntá tu comprobante de pago
-                    <span className="text-gray-600 ml-1">(imagen o PDF)</span>
+                    <span className="text-gray-500 ml-1 font-normal">(imagen o PDF)</span>
                   </label>
-                  <label className="flex items-center gap-3 p-3 border-2 border-dashed border-dark-400 rounded-lg cursor-pointer hover:border-neon-green/50 transition-colors">
-                    <Upload className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                    <span className="text-sm text-gray-400 truncate">
+                  <label className="flex items-center gap-3 p-2.5 border-2 border-dashed border-dark-400 rounded-lg cursor-pointer hover:border-neon-green/50 transition-colors">
+                    <Upload className="w-4 h-4 text-neon-green flex-shrink-0" />
+                    <span className="text-sm text-gray-300 truncate">
                       {voucherName || 'Seleccionar imagen o PDF...'}
                     </span>
                     <input
@@ -405,8 +416,8 @@ export default function Checkout() {
 
             {/* ── Columna derecha: resumen ── */}
             <div className="lg:col-span-2">
-              <div className="card-dark p-6 sticky top-24">
-                <h2 className="font-bold text-white text-lg mb-4">Resumen del pedido</h2>
+              <div className="card-dark p-4 sm:p-5 sticky top-20">
+                <h2 className="font-bold text-white text-base mb-3">Resumen del pedido</h2>
 
                 <div className="space-y-2 max-h-48 overflow-y-auto mb-4">
                   {items.map(item => (
