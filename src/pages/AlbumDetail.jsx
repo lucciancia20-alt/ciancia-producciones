@@ -223,6 +223,19 @@ export default function AlbumDetail() {
     [media]
   );
 
+  // Paginación visual (60 tarjetas por bloque) para mantener <canvas> fluido en álbumes masivos
+  const PAGE_SIZE = 60;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [albumId, search, filterType, faceMatchIds, selectedHelmetColor, selectedBikeColor, selectedJerseyColor]);
+
+  const visibleMedia = useMemo(
+    () => filtered.slice(0, visibleCount),
+    [filtered, visibleCount]
+  );
+
   const handleQuickUpdateMediaPrice = async (mediaItem, nextPrice, isIndividual = false) => {
     const cleanPrice = Number(nextPrice);
     if (!mediaItem?.id || !Number.isFinite(cleanPrice) || cleanPrice < 0) return;
@@ -605,25 +618,47 @@ export default function AlbumDetail() {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-4 gap-y-8">
-            {filtered.map(item => (
-              <MediaCard
-                key={item.id}
-                media={item}
-                onView={setViewingMedia}
-                onDelete={user ? setConfirmDeleteMedia : undefined}
-                onUpdatePrice={user ? handleQuickUpdateMediaPrice : undefined}
-                albumTitle={album?.title || item.albumTitle || ''}
-                albumLogoUrl={album?.eventLogoUrl || ''}
-                albumLogoPublicId={album?.eventLogoPublicId || ''}
-                albumBasePrice={
-                  item.type === 'video'
-                    ? (Number(album?.priceVideo) || 3000)
-                    : (Number(album?.pricePhoto) || 2000)
-                }
-              />
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-4 gap-y-8">
+              {visibleMedia.map(item => (
+                <MediaCard
+                  key={item.id}
+                  media={item}
+                  onView={setViewingMedia}
+                  onDelete={user ? setConfirmDeleteMedia : undefined}
+                  onUpdatePrice={user ? handleQuickUpdateMediaPrice : undefined}
+                  albumTitle={album?.title || item.albumTitle || ''}
+                  albumLogoUrl={album?.eventLogoUrl || ''}
+                  albumLogoPublicId={album?.eventLogoPublicId || ''}
+                  albumBasePrice={
+                    item.type === 'video'
+                      ? (Number(album?.priceVideo) || 3000)
+                      : (Number(album?.pricePhoto) || 2000)
+                  }
+                />
+              ))}
+            </div>
+
+            {filtered.length > visibleCount && (
+              <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount(prev => prev + PAGE_SIZE)}
+                  className="h-11 px-6 rounded-xl bg-dark-800 border border-cyan-500/60 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 font-bold text-sm inline-flex items-center justify-center gap-2 transition-all shadow-sm"
+                >
+                  <ChevronDown className="w-4 h-4" />
+                  <span>Mostrar más fotos ({visibleMedia.length} de {filtered.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount(filtered.length)}
+                  className="h-11 px-4 rounded-xl bg-dark-800/70 border border-dark-600 text-gray-300 hover:text-white hover:border-cyan-500/50 font-medium text-xs transition-all"
+                >
+                  Ver todas ({filtered.length})
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
 

@@ -34,18 +34,76 @@ export const COUPONS = {
   'RUNNING20':    { discount: 0.20, label: '20% Running' },
 };
 
+const CART_ITEMS_STORAGE_KEY  = 'ciancia_cart_items_v1';
+const CART_COUPON_STORAGE_KEY = 'ciancia_cart_coupon_v1';
+
+function loadStoredCartItems() {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(CART_ITEMS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter(i => i && i.id) : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadStoredCartCoupon() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(CART_COUPON_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && parsed.code ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 export function CartProvider({ children }) {
-  const [items, setItems] = useState([]);
-  const [coupon, setCoupon] = useState(null);
+  const [items, setItems] = useState(loadStoredCartItems);
+  const [coupon, setCoupon] = useState(loadStoredCartCoupon);
   const [couponError, setCouponError] = useState('');
   const [couponLoading, setCouponLoading] = useState(false);
 
+  // Sincronización con localStorage para que el corredor no pierda su selección al recargar en el celular
+  useEffect(() => {
+    try {
+      if (items.length === 0) {
+        localStorage.removeItem(CART_ITEMS_STORAGE_KEY);
+      } else {
+        // Excluimos faceDescriptors pesados para mantener localStorage ultraliviano
+        const compactItems = items.map(({ faceDescriptors, ...rest }) => rest);
+        localStorage.setItem(CART_ITEMS_STORAGE_KEY, JSON.stringify(compactItems));
+      }
+    } catch {
+      // noop
+    }
+  }, [items]);
+
+  useEffect(() => {
+    try {
+      if (!coupon) {
+        localStorage.removeItem(CART_COUPON_STORAGE_KEY);
+      } else {
+        localStorage.setItem(CART_COUPON_STORAGE_KEY, JSON.stringify(coupon));
+      }
+    } catch {
+      // noop
+    }
+  }, [coupon]);
+
   const addItem = useCallback((media) => {
     setItems(prev => {
-      if (prev.find(i => i.id === media.id)) return prev;
       const basePrice = Number(media.price) || (media.type === 'video' ? 3000 : 2000);
       const lowResThumb = getLowResSampleUrl(media.thumb || media.url, { width: 320, quality: 50 });
-      return [...prev, { ...media, thumb: lowResThumb, price: basePrice, quantity: 1 }];
+      const { faceDescriptors, ...cleanMedia } = media;
+      const existingIdx = prev.findIndex(i => i.id === media.id);
+      if (existingIdx !== -1) {
+        return prev.map((it, idx) => idx === existingIdx ? { ...it, price: basePrice, isIndividual: media.isIndividual } : it);
+      }
+      return [...prev, { ...cleanMedia, thumb: lowResThumb, price: basePrice, quantity: 1 }];
     });
   }, []);
 
@@ -57,6 +115,12 @@ export function CartProvider({ children }) {
     setItems([]);
     setCoupon(null);
     setCouponError('');
+    try {
+      localStorage.removeItem(CART_ITEMS_STORAGE_KEY);
+      localStorage.removeItem(CART_COUPON_STORAGE_KEY);
+    } catch {
+      // noop
+    }
   }, []);
 
   // Re-validar cupón automáticamente si cambian las fotos del carrito
