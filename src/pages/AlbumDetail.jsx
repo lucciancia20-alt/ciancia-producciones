@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { collection, getDocs, query, where, doc, getDoc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { collection, getDocs, addDoc, query, where, doc, getDoc, deleteDoc, updateDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
@@ -9,7 +9,7 @@ import MagnifierViewer from '../components/MagnifierViewer';
 import { VISUAL_COLOR_PALETTE, VISUAL_COLOR_MAP, normalizeColorList } from '../constants/visualColors';
 import {
   Search, ArrowLeft, Camera, Video, Filter, X, ScanFace,
-  Trash2, Loader2, ShoppingCart, Sparkles, Check, ChevronDown, ChevronUp,
+  Trash2, Loader2, ShoppingCart, Sparkles, Check, ChevronDown, ChevronUp, Bell, CheckCircle2,
 } from 'lucide-react';
 
 // Carga 100% diferida del modal de selfie para evitar que se cargue face-api / tensorflow al abrir el álbum
@@ -94,6 +94,57 @@ export default function AlbumDetail() {
   const [selectedHelmetColor, setSelectedHelmetColor] = useState(null);
   const [selectedBikeColor, setSelectedBikeColor] = useState(null);
   const [selectedJerseyColor, setSelectedJerseyColor] = useState(null);
+
+  // Estados para Pre-registro de Corredores (Lead Capture)
+  const [leadModalOpen, setLeadModalOpen] = useState(false);
+  const [leadForm, setLeadForm] = useState({ dorsal: '', whatsapp: '', email: '', nombre: '' });
+  const [leadSubmitting, setLeadSubmitting] = useState(false);
+  const [leadSuccess, setLeadSuccess] = useState(false);
+
+  const openLeadModal = () => {
+    setLeadForm(prev => ({
+      ...prev,
+      dorsal: prev.dorsal || search.trim().replace(/\D/g, ''),
+    }));
+    setLeadSuccess(false);
+    setLeadModalOpen(true);
+  };
+
+  const handleLeadSubmit = async (e) => {
+    e.preventDefault();
+    const cleanDorsal = (leadForm.dorsal || '').trim();
+    const cleanWhatsapp = (leadForm.whatsapp || '').trim();
+    const cleanEmail = (leadForm.email || '').trim();
+    const cleanNombre = (leadForm.nombre || '').trim();
+
+    if (!cleanDorsal) {
+      alert('Ingresá tu número de dorsal o pechera.');
+      return;
+    }
+    if (!cleanWhatsapp && !cleanEmail) {
+      alert('Ingresá tu número de WhatsApp o tu Email para poder avisarte.');
+      return;
+    }
+
+    setLeadSubmitting(true);
+    try {
+      await addDoc(collection(db, 'album_leads'), {
+        albumId,
+        albumTitle: album?.title || '',
+        dorsal: cleanDorsal,
+        whatsapp: cleanWhatsapp,
+        email: cleanEmail,
+        nombre: cleanNombre,
+        notified: false,
+        createdAt: Timestamp.now(),
+      });
+      setLeadSuccess(true);
+    } catch (err) {
+      alert('Error al guardar tu solicitud: ' + err.message);
+    } finally {
+      setLeadSubmitting(false);
+    }
+  };
 
   const activeVisualCount = [selectedHelmetColor, selectedBikeColor, selectedJerseyColor].filter(Boolean).length;
   const hasVisualFilter = activeVisualCount > 0;
@@ -282,6 +333,16 @@ export default function AlbumDetail() {
             >
               <ScanFace className="w-4 h-4" />
               Buscarme con Selfie 🤳
+            </button>
+
+            {/* Botón Pre-registro (Lead Capture): Avisame cuando suban mis fotos */}
+            <button
+              type="button"
+              onClick={openLeadModal}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold whitespace-nowrap bg-neon-green/15 border border-neon-green text-neon-green hover:bg-neon-green hover:text-black transition-all shadow-sm"
+            >
+              <Bell className="w-4 h-4" />
+              <span>🔔 Avisame cuando suban mis fotos</span>
             </button>
 
             {/* Type filter */}
@@ -486,10 +547,22 @@ export default function AlbumDetail() {
       {/* Media grid */}
       <div className="max-w-7xl mx-auto px-4 pb-28">
         {filtered.length === 0 ? (
-          <div className="text-center py-24 text-gray-400">
-            <Search className="w-16 h-16 mx-auto mb-4 opacity-20" />
-            <p className="font-medium text-lg">Sin resultados</p>
-            <p className="text-sm mt-1">Probá con otro número de dorsal o cambiá los colores del filtro visual</p>
+          <div className="text-center py-20 text-gray-400 space-y-4">
+            <Search className="w-16 h-16 mx-auto opacity-20" />
+            <div>
+              <p className="font-bold text-white text-lg">Sin resultados todavía</p>
+              <p className="text-sm mt-1">
+                ¿Todavía no están subidas tus fotos o no encontraste tu dorsal? Dejanos tu número y te avisamos por WhatsApp apenas estén listas.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={openLeadModal}
+              className="btn-neon py-2.5 px-5 text-sm inline-flex items-center gap-2 mx-auto"
+            >
+              <Bell className="w-4 h-4" />
+              <span>🔔 Avisame cuando suban mis fotos</span>
+            </button>
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-4 gap-y-8">
@@ -564,6 +637,135 @@ export default function AlbumDetail() {
             }}
           />
         </React.Suspense>
+      )}
+
+      {/* Modal de Pre-registro de Corredores (Lead Capture) */}
+      {leadModalOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn"
+          onClick={() => { if (!leadSubmitting) setLeadModalOpen(false); }}
+        >
+          <div
+            className="bg-dark-800 border border-neon-green/40 rounded-2xl p-6 max-w-md w-full shadow-2xl relative"
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setLeadModalOpen(false)}
+              disabled={leadSubmitting}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white p-1 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {leadSuccess ? (
+              <div className="text-center py-4 space-y-4">
+                <div className="w-14 h-14 rounded-full bg-neon-green/20 border border-neon-green flex items-center justify-center mx-auto">
+                  <CheckCircle2 className="w-8 h-8 text-neon-green" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-white">¡Listo, ya te agendamos! 🎉</h3>
+                  <p className="text-sm text-gray-300 mt-1.5 leading-relaxed">
+                    Registramos tu dorsal <strong className="text-neon-green">#{leadForm.dorsal}</strong> en <strong className="text-white">{album.title}</strong>. Te vamos a enviar un aviso directo apenas tus fotos estén disponibles.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setLeadModalOpen(false)}
+                  className="btn-neon w-full py-2.5 text-sm"
+                >
+                  Entendido
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleLeadSubmit} className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-xl bg-neon-green/15 border border-neon-green/40 flex items-center justify-center flex-shrink-0">
+                    <Bell className="w-5 h-5 text-neon-green" />
+                  </div>
+                  <div>
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-neon-green">Alerta de Fotos</span>
+                    <h3 className="font-black text-white text-lg leading-tight">Avisame cuando suban mis fotos</h3>
+                  </div>
+                </div>
+
+                <p className="text-xs text-gray-300 leading-relaxed">
+                  Dejanos tu número de dorsal/pechera y tu WhatsApp (o Email) para enviarte el link directo a tus fotos de <strong className="text-white">{album.title}</strong> apenas terminemos de subirlas.
+                </p>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs font-bold text-gray-300 mb-1 block">Número de Dorsal / Pechera *</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={leadForm.dorsal}
+                      onChange={e => setLeadForm(p => ({ ...p, dorsal: e.target.value }))}
+                      placeholder="Ej: 245"
+                      className="input-dark font-mono text-base"
+                      required
+                      autoFocus
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-gray-300 mb-1 block">Número de WhatsApp *</label>
+                    <input
+                      type="tel"
+                      value={leadForm.whatsapp}
+                      onChange={e => setLeadForm(p => ({ ...p, whatsapp: e.target.value }))}
+                      placeholder="Ej: 11 2345-6789 (con código de área)"
+                      className="input-dark text-sm"
+                      required={!leadForm.email.trim()}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-gray-400 mb-1 block">Tu Nombre (opcional)</label>
+                      <input
+                        type="text"
+                        value={leadForm.nombre}
+                        onChange={e => setLeadForm(p => ({ ...p, nombre: e.target.value }))}
+                        placeholder="Ej: Martín"
+                        className="input-dark text-xs py-2"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 mb-1 block">Email (opcional)</label>
+                      <input
+                        type="email"
+                        value={leadForm.email}
+                        onChange={e => setLeadForm(p => ({ ...p, email: e.target.value }))}
+                        placeholder="tu@email.com"
+                        className="input-dark text-xs py-2"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setLeadModalOpen(false)}
+                    disabled={leadSubmitting}
+                    className="btn-outline-neon flex-1 text-sm py-2.5"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={leadSubmitting}
+                    className="btn-neon flex-1 text-sm py-2.5 flex items-center justify-center gap-2"
+                  >
+                    {leadSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bell className="w-4 h-4" />}
+                    <span>Quiero que me avisen</span>
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Modal de confirmación rápido para eliminar foto (modo Admin) */}
