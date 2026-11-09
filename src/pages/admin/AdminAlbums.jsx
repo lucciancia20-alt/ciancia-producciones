@@ -453,10 +453,27 @@ export default function AdminAlbums() {
 
       // Cargar corredores pre-registrados (album_leads) agrupados por álbum
       try {
+        let localCache = {};
+        try {
+          localCache = JSON.parse(localStorage.getItem('ciancia_leads_notified_cache') || '{}') || {};
+        } catch {
+          localCache = {};
+        }
+
         const leadsSnap = await getDocs(collection(db, 'album_leads'));
         const grouped = {};
         leadsSnap.docs.forEach(d => {
-          const data = { id: d.id, ...d.data() };
+          const raw = d.data();
+          const cached = localCache[d.id];
+          const isNotified = Boolean(raw.notified || raw.status === 'avisado' || cached?.notified);
+          const data = {
+            id: d.id,
+            ...raw,
+            notified: isNotified,
+            status: isNotified ? 'avisado' : (raw.status || 'pendiente'),
+            notifiedAt: raw.notifiedAt || cached?.notifiedAtIso || null,
+            notifiedAtIso: raw.notifiedAtIso || cached?.notifiedAtIso || null,
+          };
           if (!data.albumId) return;
           if (!grouped[data.albumId]) grouped[data.albumId] = [];
           grouped[data.albumId].push(data);
@@ -470,6 +487,43 @@ export default function AdminAlbums() {
   }
 
   // ─── Gestión de Leads / Avisos por WhatsApp y Correo Electrónico ───────────
+  const isLeadNotified = (lead) => Boolean(lead?.notified || lead?.status === 'avisado');
+
+  const formatLeadNotifiedAt = (lead) => {
+    const raw = lead?.notifiedAt || lead?.notifiedAtIso;
+    if (!raw) return '';
+    try {
+      const d = typeof raw?.toDate === 'function'
+        ? raw.toDate()
+        : raw?.seconds
+          ? new Date(raw.seconds * 1000)
+          : new Date(raw);
+      if (isNaN(d.getTime())) return '';
+      return d.toLocaleString('es-AR', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return '';
+    }
+  };
+
+  const saveLeadCacheLocal = (leadId, payload) => {
+    try {
+      const current = JSON.parse(localStorage.getItem('ciancia_leads_notified_cache') || '{}') || {};
+      if (payload.notified) {
+        current[leadId] = payload;
+      } else {
+        delete current[leadId];
+      }
+      localStorage.setItem('ciancia_leads_notified_cache', JSON.stringify(current));
+    } catch {
+      // noop
+    }
+  };
+
   const buildLeadWhatsAppUrl = (album, lead) => {
     const rawPhone = String(lead?.whatsapp || '').replace(/\D/g, '');
     const phone = rawPhone && !rawPhone.startsWith('54') && rawPhone.length >= 8 && rawPhone.length <= 11
@@ -477,8 +531,9 @@ export default function AdminAlbums() {
       : rawPhone;
     const origin = typeof window !== 'undefined' ? window.location.origin : 'https://ciancia-producciones.onrender.com';
     const albumUrl = `${origin}/album/${album.id}`;
+    const bib = lead?.bib || lead?.dorsal || '';
     const greeting = lead?.nombre ? `¡Hola ${lead.nombre}!` : '¡Hola!';
-    const text = `${greeting} 📸 Ya subimos las fotos de *${album.title}* en *Ciancia Producciones*.\n\nPodés ver y buscar tus fotos con tu dorsal *#${lead.dorsal}* entrando directo acá:\n${albumUrl}`;
+    const text = `${greeting} 📸 Ya subimos las fotos de *${album.title}* en *Ciancia Producciones*.\n\nPodés ver y buscar tus fotos con tu dorsal *#${bib}* entrando directo acá:\n${albumUrl}`;
     return phone
       ? `https://wa.me/${phone}?text=${encodeURIComponent(text)}`
       : `https://wa.me/?text=${encodeURIComponent(text)}`;
@@ -498,7 +553,7 @@ export default function AdminAlbums() {
   const buildBulkMailtoUrl = (album, leadsList = []) => {
     const emails = [...new Set(
       leadsList
-        .map(l => String(l?.email || '').trim())
+        .map(l => String(l?.email || l?.mail || l?.correo || '').trim())
         .filter(e => e && e.includes('@'))
     )];
     if (emails.length === 0) return '';
@@ -509,36 +564,87 @@ export default function AdminAlbums() {
     return `mailto:?bcc=${encodeURIComponent(emails.join(','))}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
-  const markLeadNotified = async (albumId, leadId, notified = true) => {
+  const markLeadNotified = async (albumId, leadId, notified = true, channel = 'manual') => {
+    const nowIso = notified ? new Date().toISOString() : null;
+    const status = notified ? 'avisado' : 'pendiente';
+
+    // 1. Actualización optimista inmediata en memoria para restar pendientes en tiempo real
+    setAlbumLeads(prev => ({
+      ...prev,
+      [albumId]: (prev[albumId] || []).map(l =>
+        l.id === leadId
+          ? { ...l, notified, status, notifiedAt: nowIso, notifiedAtIso: nowIso, notifiedChannel: channel }
+          : l
+      ),
+    }));
+
+    saveLeadCacheLocal(leadId, { notified, status, notifiedAtIso: nowIso, notifiedChannel: channel });
+
+    // 2. Persistir en Firestore (album_leads)
     try {
-      await updateDoc(doc(db, 'album_leads', leadId), { notified });
-      setAlbumLeads(prev => ({
-        ...prev,
-        [albumId]: (prev[albumId] || []).map(l => l.id === leadId ? { ...l, notified } : l),
-      }));
+      await updateDoc(doc(db, 'album_leads', leadId), {
+        notified,
+        status,
+        notifiedAt: notified ? Timestamp.now() : null,
+        notifiedAtIso: nowIso,
+        notifiedChannel: channel,
+      });
     } catch (e) {
-      console.warn('[AdminAlbums] Error actualizando estado de lead:', e);
+      console.warn('[AdminAlbums] Error actualizando estado de lead en Firestore:', e);
     }
   };
 
-  const markAllLeadsNotified = async (albumId) => {
+  const markAllLeadsNotified = async (albumId, channel = 'masivo') => {
     const list = albumLeads[albumId] || [];
-    const pending = list.filter(l => !l.notified);
+    const pending = list.filter(l => !isLeadNotified(l));
     if (pending.length === 0) return;
+
+    const nowIso = new Date().toISOString();
+
+    // 1. Actualización optimista inmediata
+    setAlbumLeads(prev => ({
+      ...prev,
+      [albumId]: (prev[albumId] || []).map(l => ({
+        ...l,
+        notified: true,
+        status: 'avisado',
+        notifiedAt: l.notifiedAt || nowIso,
+        notifiedAtIso: l.notifiedAtIso || nowIso,
+        notifiedChannel: l.notifiedChannel || channel,
+      })),
+    }));
+
+    pending.forEach(l => {
+      saveLeadCacheLocal(l.id, {
+        notified: true,
+        status: 'avisado',
+        notifiedAtIso: nowIso,
+        notifiedChannel: channel,
+      });
+    });
+
+    // 2. Persistir en Firestore
     try {
-      await Promise.all(pending.map(l => updateDoc(doc(db, 'album_leads', l.id), { notified: true })));
-      setAlbumLeads(prev => ({
-        ...prev,
-        [albumId]: (prev[albumId] || []).map(l => ({ ...l, notified: true })),
-      }));
+      await Promise.all(
+        pending.map(l =>
+          updateDoc(doc(db, 'album_leads', l.id), {
+            notified: true,
+            status: 'avisado',
+            notifiedAt: Timestamp.now(),
+            notifiedAtIso: nowIso,
+            notifiedChannel: channel,
+          })
+        )
+      );
     } catch (e) {
-      alert('Error al marcar avisos: ' + e.message);
+      console.warn('[AdminAlbums] Error al marcar avisos masivos en Firestore:', e);
     }
   };
 
   const handleDeleteLead = async (albumId, leadId) => {
     try {
       await deleteDoc(doc(db, 'album_leads', leadId));
+      saveLeadCacheLocal(leadId, { notified: false });
       setAlbumLeads(prev => ({
         ...prev,
         [albumId]: (prev[albumId] || []).filter(l => l.id !== leadId),
@@ -550,18 +656,19 @@ export default function AdminAlbums() {
 
   const handleSendNextPendingWhatsApp = async (album) => {
     const list = albumLeads[album.id] || [];
-    const nextLead = list.find(l => !l.notified && (l.whatsapp || l.email)) || list.find(l => l.whatsapp || l.email);
+    const nextLead = list.find(l => !isLeadNotified(l) && (l.whatsapp || l.email)) || list.find(l => l.whatsapp || l.email);
     if (!nextLead) {
       alert('No hay corredores con WhatsApp o Email pendiente en este álbum.');
       return;
     }
+    const channel = nextLead.whatsapp ? 'whatsapp' : 'email';
+    markLeadNotified(album.id, nextLead.id, true, channel);
     if (nextLead.whatsapp) {
       const url = buildLeadWhatsAppUrl(album, nextLead);
       window.open(url, '_blank', 'noopener,noreferrer');
     } else if (nextLead.email) {
       window.location.href = buildLeadMailtoUrl(album, nextLead);
     }
-    await markLeadNotified(album.id, nextLead.id, true);
   };
 
   const handleCopyLeadsSummary = async (album) => {
@@ -595,13 +702,16 @@ export default function AdminAlbums() {
     }
   };
 
-  const handleCopySingleLeadEmail = async (lead) => {
+  const handleCopySingleLeadEmail = async (albumId, lead) => {
     const cleanEmail = String(lead?.email || lead?.mail || lead?.correo || '').trim();
     if (!cleanEmail) return;
     try {
       await navigator.clipboard.writeText(cleanEmail);
       setCopiedSingleLeadEmailId(lead.id);
       setTimeout(() => setCopiedSingleLeadEmailId(prev => (prev === lead.id ? null : prev)), 2200);
+      if (albumId) {
+        markLeadNotified(albumId, lead.id, true, 'email');
+      }
     } catch {
       // noop
     }
@@ -1511,7 +1621,8 @@ export default function AdminAlbums() {
             {albums.map(album => {
               const currentAlbumCover = album.coverUrl || album.cover || '';
               const leadsForAlbum = albumLeads[album.id] || [];
-              const pendingLeadsCount = leadsForAlbum.filter(l => !l.notified).length;
+              const pendingLeadsCount = leadsForAlbum.filter(l => !isLeadNotified(l)).length;
+              const notifiedLeadsCount = leadsForAlbum.length - pendingLeadsCount;
               return (
                 <div key={album.id} className="card-dark border border-dark-500">
                   <div className="p-4 flex flex-wrap sm:flex-nowrap items-center gap-4">
@@ -1524,13 +1635,19 @@ export default function AdminAlbums() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="font-bold text-white truncate">{album.title}</h3>
                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border ${
-                          leadsForAlbum.length > 0
+                          pendingLeadsCount > 0
                             ? 'bg-neon-green/15 border-neon-green/40 text-neon-green'
-                            : 'bg-dark-700 border-dark-600 text-gray-400'
+                            : leadsForAlbum.length > 0
+                              ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300'
+                              : 'bg-dark-700 border-dark-600 text-gray-400'
                         }`}>
                           <Bell className="w-3 h-3" />
                           <span>
-                            {leadsForAlbum.length} {leadsForAlbum.length === 1 ? 'corredor esperando aviso' : 'corredores esperando aviso'}
+                            {pendingLeadsCount > 0
+                              ? `${pendingLeadsCount} ${pendingLeadsCount === 1 ? 'corredor esperando aviso' : 'corredores esperando aviso'}${notifiedLeadsCount > 0 ? ` · ${notifiedLeadsCount} avisado${notifiedLeadsCount !== 1 ? 's' : ''}` : ''}`
+                              : leadsForAlbum.length > 0
+                                ? `0 pendientes · ${notifiedLeadsCount} avisado${notifiedLeadsCount !== 1 ? 's' : ''}`
+                                : '0 corredores esperando aviso'}
                           </span>
                         </span>
                         {album.eventLogoUrl && (
@@ -1558,12 +1675,16 @@ export default function AdminAlbums() {
                             ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/25'
                             : 'bg-dark-700 border-dark-500 text-gray-200 hover:text-neon-green hover:border-neon-green/50'
                         }`}
-                        title="Ver corredores pre-registrados y enviar avisos por WhatsApp"
+                        title="Ver corredores pre-registrados y enviar avisos por WhatsApp o Email"
                       >
                         <span>📢 Enviar avisos por WhatsApp</span>
                         {leadsForAlbum.length > 0 && (
-                          <span className="px-1.5 py-0.2 rounded-full bg-neon-green text-black text-[10px] font-black">
-                            {leadsForAlbum.length}
+                          <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                            pendingLeadsCount > 0
+                              ? 'bg-neon-green text-black'
+                              : 'bg-dark-600 text-cyan-300 border border-cyan-500/40'
+                          }`}>
+                            {pendingLeadsCount > 0 ? pendingLeadsCount : `✓ ${notifiedLeadsCount}`}
                           </span>
                         )}
                       </button>
@@ -2035,9 +2156,12 @@ export default function AdminAlbums() {
       {/* ── Modal de Gestión de Leads y Envío de Avisos por WhatsApp / Email ── */}
       {leadsModalAlbum && (() => {
         const list = albumLeads[leadsModalAlbum.id] || [];
-        const pendingList = list.filter(l => !l.notified);
+        const pendingList = list.filter(l => !isLeadNotified(l));
         const notifiedCount = list.length - pendingList.length;
-        const leadsWithEmail = list.filter(l => l.email && String(l.email).includes('@'));
+        const leadsWithEmail = list.filter(l => {
+          const e = String(l.email || l.mail || l.correo || '').trim();
+          return Boolean(e && e.includes('@'));
+        });
         const bulkMailtoUrl = buildBulkMailtoUrl(leadsModalAlbum, list);
 
         return (
@@ -2063,8 +2187,13 @@ export default function AdminAlbums() {
                     </h3>
                     <p className="text-xs text-gray-400 mt-0.5">
                       {list.length} {list.length === 1 ? 'corredor registrado' : 'corredores registrados'} ·{' '}
-                      <span className="text-yellow-300 font-semibold">{pendingList.length} pendiente{pendingList.length !== 1 ? 's' : ''}</span> ·{' '}
-                      <span className="text-cyan-400 font-semibold">{notifiedCount} avisado{notifiedCount !== 1 ? 's' : ''}</span>
+                      <span className={pendingList.length > 0 ? 'text-yellow-300 font-semibold' : 'text-gray-400 font-semibold'}>
+                        {pendingList.length} pendiente{pendingList.length !== 1 ? 's' : ''}
+                      </span>{' '}
+                      -{' '}
+                      <span className="text-cyan-400 font-semibold">
+                        {notifiedCount} avisado{notifiedCount !== 1 ? 's' : ''}
+                      </span>
                     </p>
                   </div>
                 </div>
@@ -2122,7 +2251,7 @@ export default function AdminAlbums() {
                           {bulkMailtoUrl && (
                             <a
                               href={bulkMailtoUrl}
-                              onClick={() => markAllLeadsNotified(leadsModalAlbum.id)}
+                              onClick={() => markAllLeadsNotified(leadsModalAlbum.id, 'email-masivo')}
                               className="px-3 py-2 rounded-lg text-xs font-bold bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 transition-colors inline-flex items-center gap-1.5"
                               title="Abrir cliente de correo con todos los emails en copia oculta (BCC)"
                             >
@@ -2136,7 +2265,7 @@ export default function AdminAlbums() {
                     {pendingList.length > 0 && (
                       <button
                         type="button"
-                        onClick={() => markAllLeadsNotified(leadsModalAlbum.id)}
+                        onClick={() => markAllLeadsNotified(leadsModalAlbum.id, 'manual-masivo')}
                         className="text-xs text-gray-300 hover:text-neon-green font-semibold px-2 py-1"
                       >
                         ✓ Marcar todos como avisados
@@ -2153,12 +2282,14 @@ export default function AdminAlbums() {
                       const mailtoUrl = buildLeadMailtoUrl(leadsModalAlbum, lead);
                       const hasValidEmail = Boolean(leadEmail && leadEmail.includes('@'));
                       const hasWhatsapp = Boolean(lead.whatsapp && String(lead.whatsapp).trim());
+                      const notified = isLeadNotified(lead);
+                      const notifiedTimeStr = formatLeadNotifiedAt(lead);
                       return (
                         <div
                           key={lead.id}
                           className={`flex flex-wrap items-center justify-between gap-3 rounded-xl p-3 border transition-colors ${
-                            lead.notified
-                              ? 'bg-dark-700/50 border-dark-600 opacity-80'
+                            notified
+                              ? 'bg-dark-700/50 border-dark-600 opacity-85'
                               : 'bg-dark-700 border-neon-green/30'
                           }`}
                         >
@@ -2170,14 +2301,25 @@ export default function AdminAlbums() {
                               {lead.nombre && (
                                 <span className="text-white font-bold text-xs">{lead.nombre}</span>
                               )}
-                              {lead.notified ? (
-                                <span className="inline-flex items-center gap-1 text-[11px] text-cyan-400 font-semibold">
-                                  <CheckCircle2 className="w-3 h-3" /> Avisado
-                                </span>
+                              {notified ? (
+                                <button
+                                  type="button"
+                                  onClick={() => markLeadNotified(leadsModalAlbum.id, lead.id, false, 'manual')}
+                                  className="inline-flex items-center gap-1 text-[11px] text-cyan-400 hover:text-cyan-300 font-semibold bg-cyan-500/10 border border-cyan-500/30 px-2 py-0.5 rounded-full transition-colors"
+                                  title="Clic para volver a marcar como pendiente"
+                                >
+                                  <CheckCircle2 className="w-3 h-3" />
+                                  <span>Avisado{notifiedTimeStr ? ` · ${notifiedTimeStr}` : ''}</span>
+                                </button>
                               ) : (
-                                <span className="inline-flex items-center gap-1 text-[11px] text-yellow-300 font-semibold">
-                                  ⏳ Esperando aviso
-                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => markLeadNotified(leadsModalAlbum.id, lead.id, true, 'manual')}
+                                  className="inline-flex items-center gap-1 text-[11px] text-yellow-300 hover:text-neon-green font-semibold bg-yellow-500/10 border border-yellow-500/30 px-2 py-0.5 rounded-full transition-colors"
+                                  title="Clic para marcar manualmente como avisado"
+                                >
+                                  <span>⏳ Esperando aviso</span>
+                                </button>
                               )}
                             </div>
                             <p className="text-xs text-gray-300 mt-1 flex items-center flex-wrap gap-x-2 gap-y-1">
@@ -2197,7 +2339,7 @@ export default function AdminAlbums() {
                                 href={waUrl}
                                 target="_blank"
                                 rel="noreferrer"
-                                onClick={() => markLeadNotified(leadsModalAlbum.id, lead.id, true)}
+                                onClick={() => markLeadNotified(leadsModalAlbum.id, lead.id, true, 'whatsapp')}
                                 className="px-3 py-1.5 rounded-lg text-xs font-bold bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 transition-colors inline-flex items-center gap-1.5"
                                 title={`Enviar aviso por WhatsApp a ${lead.whatsapp}`}
                               >
@@ -2209,9 +2351,7 @@ export default function AdminAlbums() {
                               <>
                                 <a
                                   href={mailtoUrl}
-                                  onClick={() => {
-                                    setTimeout(() => markLeadNotified(leadsModalAlbum.id, lead.id, true), 350);
-                                  }}
+                                  onClick={() => markLeadNotified(leadsModalAlbum.id, lead.id, true, 'email')}
                                   className="px-3 py-1.5 rounded-lg text-xs font-bold bg-cyan-500 hover:bg-cyan-400 text-black border border-cyan-400 shadow-sm transition-all inline-flex items-center gap-1.5"
                                   title={`Abrir correo para ${leadEmail}`}
                                 >
@@ -2220,9 +2360,9 @@ export default function AdminAlbums() {
 
                                 <button
                                   type="button"
-                                  onClick={() => handleCopySingleLeadEmail(lead)}
+                                  onClick={() => handleCopySingleLeadEmail(leadsModalAlbum.id, lead)}
                                   className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-dark-800 hover:bg-dark-600 text-cyan-300 border border-cyan-500/40 hover:border-cyan-400 transition-colors inline-flex items-center gap-1"
-                                  title={`Copiar dirección de correo (${leadEmail})`}
+                                  title={`Copiar dirección de correo (${leadEmail}) y marcar como avisado`}
                                 >
                                   <span>{copiedSingleLeadEmailId === lead.id ? '✅ Copiado' : '📋 Copiar email'}</span>
                                 </button>
