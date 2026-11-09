@@ -98,7 +98,7 @@ export default function MediaCard({
           const ctx = canvas.getContext('2d');
           ctx.clearRect(0, 0, w, h);
           ctx.drawImage(img, 0, 0, w, h);
-          drawWatermarks(ctx, w, h, { albumTitle: resolvedAlbumTitle });
+          drawWatermarks(ctx, w, h, { albumTitle: resolvedAlbumTitle, isVideo });
         }
         setLoaded(true);
       };

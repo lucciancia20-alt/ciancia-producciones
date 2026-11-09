@@ -22,6 +22,7 @@ export function drawWatermarks(ctx, W, H, options = {}) {
   const rawAlbumTitle = typeof options === 'string'
     ? options
     : (options?.albumTitle || '');
+  const isVideoMode = typeof options === 'object' && Boolean(options?.isVideo);
   const mainCenterText = (rawAlbumTitle || '').trim() || WATERMARK_TEXT;
   const smallDiagonalText = WATERMARK_TEXT;
 
@@ -30,19 +31,24 @@ export function drawWatermarks(ctx, W, H, options = {}) {
   ctx.translate(W / 2, H / 2);
 
   // 1a. Malla diagonal cruzada (+28° y -28°) que cubre el 100% de la superficie
-  const meshStep = Math.max(24, Math.round(minDim / 22));
+  // En videos se refuerza la densidad, el contraste y el grosor contra inpainting/borrado por IA
+  const meshStep = isVideoMode
+    ? Math.max(14, Math.round(minDim / 34))
+    : Math.max(24, Math.round(minDim / 22));
   const angles   = [-Math.PI / 6.4, Math.PI / 6.4];
 
   angles.forEach((angle, idx) => {
     ctx.save();
     ctx.rotate(angle);
-    ctx.lineWidth = Math.max(0.8, minDim / 750);
+    ctx.lineWidth = isVideoMode
+      ? Math.max(1.4, minDim / 380)
+      : Math.max(0.8, minDim / 750);
 
     for (let y = -diag; y <= diag; y += meshStep) {
-      // Alternamos trazo claro y trazo oscuro sutil para afectar tanto zonas claras como oscuras
+      // Alternamos trazo claro y trazo oscuro para afectar tanto zonas claras como oscuras
       ctx.strokeStyle = ((Math.round(y / meshStep) + idx) % 2 === 0)
-        ? 'rgba(255, 255, 255, 0.11)'
-        : 'rgba(0, 0, 0, 0.09)';
+        ? (isVideoMode ? 'rgba(255, 255, 255, 0.28)' : 'rgba(255, 255, 255, 0.11)')
+        : (isVideoMode ? 'rgba(0, 0, 0, 0.26)' : 'rgba(0, 0, 0, 0.09)');
       ctx.beginPath();
       ctx.moveTo(-diag, y);
       ctx.lineTo(diag, y);
@@ -54,26 +60,32 @@ export function drawWatermarks(ctx, W, H, options = {}) {
   // 1b. Curvas sinusoidales guilloché entrelazadas (dificultan reconstrucción por IA)
   ctx.save();
   ctx.rotate(-Math.PI / 8);
-  const waveStep = Math.max(38, Math.round(minDim / 13));
-  const amp      = Math.max(6, Math.round(minDim / 65));
-  const freq     = (Math.PI * 2) / Math.max(90, Math.round(minDim / 5));
-  ctx.lineWidth  = Math.max(0.85, minDim / 680);
+  const waveStep = isVideoMode
+    ? Math.max(20, Math.round(minDim / 20))
+    : Math.max(38, Math.round(minDim / 13));
+  const amp      = isVideoMode
+    ? Math.max(8, Math.round(minDim / 48))
+    : Math.max(6, Math.round(minDim / 65));
+  const freq     = (Math.PI * 2) / Math.max(76, Math.round(minDim / 5));
+  ctx.lineWidth  = isVideoMode
+    ? Math.max(1.45, minDim / 360)
+    : Math.max(0.85, minDim / 680);
 
   for (let baseY = -diag; baseY <= diag; baseY += waveStep) {
-    // Onda fase A (blanca sutil)
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.10)';
+    // Onda fase A (blanca)
+    ctx.strokeStyle = isVideoMode ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 255, 255, 0.10)';
     ctx.beginPath();
-    for (let x = -diag; x <= diag; x += 14) {
+    for (let x = -diag; x <= diag; x += 12) {
       const y = baseY + Math.sin(x * freq) * amp;
       if (x === -diag) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
     ctx.stroke();
 
-    // Onda fase B (contrafase)
-    ctx.strokeStyle = 'rgba(6, 182, 212, 0.06)';
+    // Onda fase B (contrafase cyan/oscura)
+    ctx.strokeStyle = isVideoMode ? 'rgba(6, 182, 212, 0.22)' : 'rgba(6, 182, 212, 0.06)';
     ctx.beginPath();
-    for (let x = -diag; x <= diag; x += 14) {
+    for (let x = -diag; x <= diag; x += 12) {
       const y = baseY + Math.cos(x * freq) * amp;
       if (x === -diag) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
@@ -84,7 +96,9 @@ export function drawWatermarks(ctx, W, H, options = {}) {
   ctx.restore();
 
   // ── 2) Patrón repetido diagonal en letras chicas: "Ciancia Producciones" ───
-  const smallSize = Math.max(11, Math.round(minDim / 40));
+  const smallSize = isVideoMode
+    ? Math.max(16, Math.round(minDim / 24))
+    : Math.max(11, Math.round(minDim / 40));
   ctx.save();
   ctx.font         = `800 ${smallSize}px "Inter", "Arial Black", sans-serif`;
   ctx.textAlign    = 'center';
@@ -94,8 +108,12 @@ export function drawWatermarks(ctx, W, H, options = {}) {
   }
 
   const measured = ctx.measureText(smallDiagonalText).width;
-  const stepX    = Math.round(measured * 1.5 + 85);
-  const stepY    = Math.round(Math.max(smallSize * 7.2, measured * 0.54));
+  const stepX    = isVideoMode
+    ? Math.round(measured * 1.22 + 48)
+    : Math.round(measured * 1.5 + 85);
+  const stepY    = isVideoMode
+    ? Math.round(Math.max(smallSize * 4.8, measured * 0.38))
+    : Math.round(Math.max(smallSize * 7.2, measured * 0.54));
 
   for (let row = -2; row < H / stepY + 3; row++) {
     for (let col = -1; col < W / stepX + 2; col++) {
@@ -104,16 +122,16 @@ export function drawWatermarks(ctx, W, H, options = {}) {
       ctx.translate(col * stepX + offsetX, row * stepY);
       ctx.rotate(-Math.PI / 6);
 
-      ctx.shadowColor   = 'rgba(0, 0, 0, 0.65)';
-      ctx.shadowBlur    = 3;
+      ctx.shadowColor   = isVideoMode ? 'rgba(0, 0, 0, 0.80)' : 'rgba(0, 0, 0, 0.65)';
+      ctx.shadowBlur    = isVideoMode ? 4 : 3;
       ctx.shadowOffsetX = 1;
       ctx.shadowOffsetY = 1;
 
-      ctx.lineWidth   = Math.max(1.8, smallSize * 0.15);
-      ctx.strokeStyle = 'rgba(0, 0, 0, 0.52)';
+      ctx.lineWidth   = Math.max(isVideoMode ? 2.5 : 1.8, smallSize * 0.16);
+      ctx.strokeStyle = isVideoMode ? 'rgba(0, 0, 0, 0.68)' : 'rgba(0, 0, 0, 0.52)';
       ctx.strokeText(smallDiagonalText, 0, 0);
 
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.46)';
+      ctx.fillStyle = isVideoMode ? 'rgba(255, 255, 255, 0.58)' : 'rgba(255, 255, 255, 0.46)';
       ctx.fillText(smallDiagonalText, 0, 0);
       ctx.restore();
     }
@@ -121,7 +139,9 @@ export function drawWatermarks(ctx, W, H, options = {}) {
   ctx.restore();
 
   // ── 3) Marca central principal con el nombre del álbum en letras grandes ──
-  let bigSize = Math.max(19, Math.round(minDim / 13));
+  let bigSize = isVideoMode
+    ? Math.max(36, Math.round(minDim / 7.2))
+    : Math.max(19, Math.round(minDim / 13));
   ctx.save();
   ctx.translate(W / 2, H / 2);
   ctx.rotate(-Math.PI / 6);
@@ -134,10 +154,10 @@ export function drawWatermarks(ctx, W, H, options = {}) {
   }
 
   // Ajuste automático de escala si el título del álbum es largo para que luzca centrado sin cortarse
-  const maxCenterWidth = diag * 0.74;
+  const maxCenterWidth = isVideoMode ? diag * 0.84 : diag * 0.74;
   const measuredCenter = ctx.measureText(mainCenterText).width;
   if (measuredCenter > maxCenterWidth && measuredCenter > 0) {
-    bigSize = Math.max(14, Math.floor(bigSize * (maxCenterWidth / measuredCenter)));
+    bigSize = Math.max(isVideoMode ? 22 : 14, Math.floor(bigSize * (maxCenterWidth / measuredCenter)));
     ctx.font = `900 ${bigSize}px "Inter", "Arial Black", sans-serif`;
     if ('letterSpacing' in ctx) {
       ctx.letterSpacing = `${Math.max(2, Math.round(bigSize * 0.12))}px`;
@@ -146,11 +166,11 @@ export function drawWatermarks(ctx, W, H, options = {}) {
 
   // Fajita central translúcida + líneas de guarda paralelas que cruzan todo el torso del corredor
   const bandHalf = Math.round(bigSize * 1.08);
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.16)';
+  ctx.fillStyle = isVideoMode ? 'rgba(0, 0, 0, 0.24)' : 'rgba(0, 0, 0, 0.16)';
   ctx.fillRect(-diag, -bandHalf, diag * 2, bandHalf * 2);
 
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.42)';
-  ctx.lineWidth   = Math.max(1.2, minDim / 420);
+  ctx.strokeStyle = isVideoMode ? 'rgba(255, 255, 255, 0.54)' : 'rgba(255, 255, 255, 0.42)';
+  ctx.lineWidth   = Math.max(isVideoMode ? 2.0 : 1.2, minDim / (isVideoMode ? 290 : 420));
   ctx.beginPath();
   ctx.moveTo(-diag, -bandHalf);
   ctx.lineTo(diag, -bandHalf);
@@ -158,7 +178,7 @@ export function drawWatermarks(ctx, W, H, options = {}) {
   ctx.lineTo(diag, bandHalf);
   ctx.stroke();
 
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)';
+  ctx.strokeStyle = isVideoMode ? 'rgba(0, 0, 0, 0.56)' : 'rgba(0, 0, 0, 0.45)';
   ctx.beginPath();
   ctx.moveTo(-diag, -bandHalf - 2);
   ctx.lineTo(diag, -bandHalf - 2);
@@ -167,30 +187,30 @@ export function drawWatermarks(ctx, W, H, options = {}) {
   ctx.stroke();
 
   // Texto central principal (Nombre dinámico del álbum) con borde oscuro y sombra de alto contraste
-  ctx.shadowColor   = 'rgba(0, 0, 0, 0.80)';
-  ctx.shadowBlur    = 8;
+  ctx.shadowColor   = 'rgba(0, 0, 0, 0.85)';
+  ctx.shadowBlur    = isVideoMode ? 10 : 8;
   ctx.shadowOffsetX = 1.5;
   ctx.shadowOffsetY = 1.5;
 
-  ctx.lineWidth   = Math.max(2.6, bigSize * 0.11);
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.65)';
+  ctx.lineWidth   = Math.max(isVideoMode ? 3.8 : 2.6, bigSize * 0.11);
+  ctx.strokeStyle = isVideoMode ? 'rgba(0, 0, 0, 0.75)' : 'rgba(0, 0, 0, 0.65)';
   ctx.strokeText(mainCenterText, 0, 0);
 
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.68)';
+  ctx.fillStyle = isVideoMode ? 'rgba(255, 255, 255, 0.78)' : 'rgba(255, 255, 255, 0.68)';
   ctx.fillText(mainCenterText, 0, 0);
 
   // Sub-bandas superior e inferior en letras chicas con "Ciancia Producciones"
-  const subSize = Math.max(10, Math.round(bigSize * 0.45));
+  const subSize = Math.max(isVideoMode ? 15 : 10, Math.round(bigSize * (isVideoMode ? 0.47 : 0.45)));
   ctx.font = `800 ${subSize}px "Inter", "Arial Black", sans-serif`;
   if ('letterSpacing' in ctx) {
     ctx.letterSpacing = `${Math.max(2, Math.round(subSize * 0.22))}px`;
   }
-  ctx.lineWidth   = Math.max(1.8, subSize * 0.14);
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.58)';
+  ctx.lineWidth   = Math.max(isVideoMode ? 2.4 : 1.8, subSize * 0.15);
+  ctx.strokeStyle = isVideoMode ? 'rgba(0, 0, 0, 0.70)' : 'rgba(0, 0, 0, 0.58)';
   ctx.strokeText(smallDiagonalText, 0, bigSize * 1.75);
   ctx.strokeText(smallDiagonalText, 0, -bigSize * 1.75);
 
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.52)';
+  ctx.fillStyle = isVideoMode ? 'rgba(255, 255, 255, 0.64)' : 'rgba(255, 255, 255, 0.52)';
   ctx.fillText(smallDiagonalText, 0, bigSize * 1.75);
   ctx.fillText(smallDiagonalText, 0, -bigSize * 1.75);
 
@@ -580,9 +600,10 @@ function PhotoMagnifier({ media, onClose, albumTitle = '', albumLogoUrl = '', al
   );
 }
 
-// ─── Visor de videos ──────────────────────────────────────────────────────────
+// ─── Visor de videos con Entramado Anti-IA y Marca de Agua Reforzada en <canvas> ──
 function VideoViewer({ media, onClose, albumTitle = '' }) {
-  const videoRef = useRef(null);
+  const videoRef           = useRef(null);
+  const watermarkCanvasRef = useRef(null);
   const [playing, setPlaying] = useState(false);
   const [muted,   setMuted  ] = useState(false);
   const { shieldActive, restoreView } = useCaptureShield();
@@ -590,6 +611,38 @@ function VideoViewer({ media, onClose, albumTitle = '' }) {
   const inCart    = items.some(i => i.id === media.id);
   const itemPrice = Number(media.price) || (media.type === 'video' ? 3000 : 2000);
   const resolvedAlbumTitle = (albumTitle || media.albumTitle || '').trim() || WATERMARK_TEXT;
+
+  const paintVideoWatermark = useCallback(() => {
+    const canvas = watermarkCanvasRef.current;
+    const video  = videoRef.current;
+    if (!canvas) return;
+    const rect = (video || canvas).getBoundingClientRect();
+    const w = Math.max(640, Math.round(rect.width  || 850));
+    const h = Math.max(360, Math.round(rect.height || 480));
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width  = w;
+      canvas.height = h;
+    }
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, w, h);
+    drawWatermarks(ctx, w, h, { albumTitle: resolvedAlbumTitle, isVideo: true });
+  }, [resolvedAlbumTitle]);
+
+  useEffect(() => {
+    paintVideoWatermark();
+    const videoEl = videoRef.current;
+    let ro = null;
+    if (typeof ResizeObserver !== 'undefined' && videoEl) {
+      ro = new ResizeObserver(() => paintVideoWatermark());
+      ro.observe(videoEl);
+    }
+    window.addEventListener('resize', paintVideoWatermark);
+    return () => {
+      if (ro) ro.disconnect();
+      window.removeEventListener('resize', paintVideoWatermark);
+    };
+  }, [paintVideoWatermark]);
 
   const togglePlay = () => {
     if (!videoRef.current) return;
@@ -662,42 +715,18 @@ function VideoViewer({ media, onClose, albumTitle = '' }) {
           muted={muted}
           loop
           playsInline
+          onLoadedMetadata={paintVideoWatermark}
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
           onContextMenu={blockMenu}
         />
 
-        {/* Marca de agua video — patrón espaciado "Ciancia Producciones" + central con nombre del álbum */}
-        <div className="absolute inset-0 pointer-events-none select-none overflow-hidden">
-          <div className="absolute inset-0 grid grid-cols-2 grid-rows-3 gap-10 p-6">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="flex items-center justify-center">
-                <span
-                  className="text-white/45 font-extrabold text-[10px] rotate-[-28deg] whitespace-nowrap drop-shadow-[0_1px_3px_rgba(0,0,0,0.85)]"
-                  style={{ letterSpacing: '0.22em', wordSpacing: '0.35em' }}
-                >
-                  Ciancia Producciones
-                </span>
-              </div>
-            ))}
-          </div>
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="rotate-[-28deg] text-center drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
-              <p
-                className="text-white/65 font-black text-xl whitespace-nowrap"
-                style={{ letterSpacing: '0.18em', wordSpacing: '0.35em' }}
-              >
-                {resolvedAlbumTitle}
-              </p>
-              <p
-                className="text-white/50 font-extrabold text-xs whitespace-nowrap mt-3"
-                style={{ letterSpacing: '0.24em', wordSpacing: '0.35em' }}
-              >
-                Ciancia Producciones
-              </p>
-            </div>
-          </div>
-        </div>
+        {/* Capa <canvas> de Seguridad Multimedia Anti-IA (entramado denso + ondas guilloché + doble marca de agua agrandada) */}
+        <canvas
+          ref={watermarkCanvasRef}
+          onContextMenu={blockMenu}
+          className="absolute inset-0 w-full h-full pointer-events-none select-none z-10"
+        />
 
         {shieldActive && (
           <div
