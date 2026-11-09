@@ -93,6 +93,7 @@ export default function AdminAlbums() {
   const [albumLeads, setAlbumLeads]     = useState({});   // { [albumId]: lead[] }
   const [leadsModalAlbum, setLeadsModalAlbum] = useState(null); // album seleccionado para enviar avisos
   const [copiedLeadsSummary, setCopiedLeadsSummary] = useState(false);
+  const [copiedLeadsEmails, setCopiedLeadsEmails] = useState(false);
   const dropRef = useRef(null);
   const uploadFilesRef = useRef([]);
   const enableFaceDetectionRef = useRef(true);
@@ -467,7 +468,7 @@ export default function AdminAlbums() {
     finally { setLoading(false); }
   }
 
-  // ─── Gestión de Leads / Avisos por WhatsApp ─────────────────────────────────
+  // ─── Gestión de Leads / Avisos por WhatsApp y Correo Electrónico ───────────
   const buildLeadWhatsAppUrl = (album, lead) => {
     const rawPhone = String(lead?.whatsapp || '').replace(/\D/g, '');
     const phone = rawPhone && !rawPhone.startsWith('54') && rawPhone.length >= 8 && rawPhone.length <= 11
@@ -480,6 +481,31 @@ export default function AdminAlbums() {
     return phone
       ? `https://wa.me/${phone}?text=${encodeURIComponent(text)}`
       : `https://wa.me/?text=${encodeURIComponent(text)}`;
+  };
+
+  const buildLeadMailtoUrl = (album, lead) => {
+    const cleanEmail = String(lead?.email || '').trim();
+    if (!cleanEmail) return '';
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://ciancia-producciones.onrender.com';
+    const albumUrl = `${origin}/album/${album.id}`;
+    const greeting = lead?.nombre ? `¡Hola ${lead.nombre}!` : '¡Hola!';
+    const subject = `¡Tus fotos de ${album.title || 'la carrera'} ya están listas! 📸`;
+    const body = `${greeting}\n\nYa subimos las fotos de tu dorsal #${lead.dorsal} en ${album.title || 'el álbum'}.\nPodés buscarlas acá: ${albumUrl}\n\n¡Saludos!\nCiancia Producciones`;
+    return `mailto:${cleanEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  };
+
+  const buildBulkMailtoUrl = (album, leadsList = []) => {
+    const emails = [...new Set(
+      leadsList
+        .map(l => String(l?.email || '').trim())
+        .filter(e => e && e.includes('@'))
+    )];
+    if (emails.length === 0) return '';
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://ciancia-producciones.onrender.com';
+    const albumUrl = `${origin}/album/${album.id}`;
+    const subject = `¡Tus fotos de ${album.title || 'la carrera'} ya están listas! 📸`;
+    const body = `¡Hola!\n\nYa subimos las fotos de ${album.title || 'la carrera'} en Ciancia Producciones.\nPodés buscar tus fotos por tu número de dorsal o selfie entrando acá:\n${albumUrl}\n\n¡Saludos!\nCiancia Producciones`;
+    return `mailto:?bcc=${encodeURIComponent(emails.join(','))}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
   const markLeadNotified = async (albumId, leadId, notified = true) => {
@@ -523,13 +549,17 @@ export default function AdminAlbums() {
 
   const handleSendNextPendingWhatsApp = async (album) => {
     const list = albumLeads[album.id] || [];
-    const nextLead = list.find(l => !l.notified && l.whatsapp) || list.find(l => l.whatsapp);
+    const nextLead = list.find(l => !l.notified && (l.whatsapp || l.email)) || list.find(l => l.whatsapp || l.email);
     if (!nextLead) {
-      alert('No hay corredores con número de WhatsApp pendiente en este álbum.');
+      alert('No hay corredores con WhatsApp o Email pendiente en este álbum.');
       return;
     }
-    const url = buildLeadWhatsAppUrl(album, nextLead);
-    window.open(url, '_blank', 'noopener,noreferrer');
+    if (nextLead.whatsapp) {
+      const url = buildLeadWhatsAppUrl(album, nextLead);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } else if (nextLead.email) {
+      window.location.href = buildLeadMailtoUrl(album, nextLead);
+    }
     await markLeadNotified(album.id, nextLead.id, true);
   };
 
@@ -538,12 +568,25 @@ export default function AdminAlbums() {
     if (list.length === 0) return;
     const origin = typeof window !== 'undefined' ? window.location.origin : 'https://ciancia-producciones.onrender.com';
     const lines = list.map(l =>
-      `Dorsal #${l.dorsal}${l.nombre ? ` (${l.nombre})` : ''} - WhatsApp: ${l.whatsapp || '—'}${l.email ? ` | Email: ${l.email}` : ''} -> ${origin}/album/${album.id}`
+      `Dorsal #${l.dorsal}${l.nombre ? ` (${l.nombre})` : ''} - WhatsApp: ${l.whatsapp || '—'} | Email: ${l.email || '—'} -> ${origin}/album/${album.id}`
     );
     try {
       await navigator.clipboard.writeText(lines.join('\n'));
       setCopiedLeadsSummary(true);
       setTimeout(() => setCopiedLeadsSummary(false), 2200);
+    } catch {
+      // noop
+    }
+  };
+
+  const handleCopyLeadsEmails = async (album) => {
+    const list = albumLeads[album.id] || [];
+    const emails = [...new Set(list.map(l => String(l?.email || '').trim()).filter(e => e && e.includes('@')))];
+    if (emails.length === 0) return;
+    try {
+      await navigator.clipboard.writeText(emails.join(', '));
+      setCopiedLeadsEmails(true);
+      setTimeout(() => setCopiedLeadsEmails(false), 2200);
     } catch {
       // noop
     }
@@ -1974,11 +2017,13 @@ export default function AdminAlbums() {
         )}
       </div>
 
-      {/* ── Modal de Gestión de Leads y Envío de Avisos por WhatsApp ── */}
+      {/* ── Modal de Gestión de Leads y Envío de Avisos por WhatsApp / Email ── */}
       {leadsModalAlbum && (() => {
         const list = albumLeads[leadsModalAlbum.id] || [];
         const pendingList = list.filter(l => !l.notified);
         const notifiedCount = list.length - pendingList.length;
+        const leadsWithEmail = list.filter(l => l.email && String(l.email).includes('@'));
+        const bulkMailtoUrl = buildBulkMailtoUrl(leadsModalAlbum, list);
 
         return (
           <div
@@ -2022,7 +2067,7 @@ export default function AdminAlbums() {
                   <Bell className="w-10 h-10 mx-auto opacity-25" />
                   <p className="text-sm font-semibold text-white">Todavía no hay corredores pre-registrados en este álbum</p>
                   <p className="text-xs text-gray-400 max-w-md mx-auto">
-                    Cuando los deportistas entren al álbum y toquen el botón <strong>&ldquo;🔔 Avisame cuando suban mis fotos&rdquo;</strong>, aparecerán listados acá con su dorsal y WhatsApp listos para enviarles el aviso.
+                    Cuando los deportistas entren al álbum y toquen el botón <strong>&ldquo;🔔 Avisame cuando suban mis fotos&rdquo;</strong>, aparecerán listados acá con su dorsal, WhatsApp y Email listos para enviarles el aviso.
                   </p>
                 </div>
               ) : (
@@ -2043,9 +2088,34 @@ export default function AdminAlbums() {
                         type="button"
                         onClick={() => handleCopyLeadsSummary(leadsModalAlbum)}
                         className="btn-outline-neon text-xs py-2 px-3 inline-flex items-center gap-1.5"
+                        title="Copiar dorsales, WhatsApps, Emails y links del álbum"
                       >
                         <span>{copiedLeadsSummary ? '✅ ¡Lista copiada!' : '📋 Copiar lista completa'}</span>
                       </button>
+
+                      {leadsWithEmail.length > 0 && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyLeadsEmails(leadsModalAlbum)}
+                            className="px-3 py-2 rounded-lg text-xs font-bold bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 transition-colors inline-flex items-center gap-1.5"
+                            title="Copiar todas las direcciones de correo separadas por coma"
+                          >
+                            <span>{copiedLeadsEmails ? '✅ ¡Mails copiados!' : `📧 Copiar Mails (${leadsWithEmail.length})`}</span>
+                          </button>
+
+                          {bulkMailtoUrl && (
+                            <a
+                              href={bulkMailtoUrl}
+                              onClick={() => markAllLeadsNotified(leadsModalAlbum.id)}
+                              className="px-3 py-2 rounded-lg text-xs font-bold bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 transition-colors inline-flex items-center gap-1.5"
+                              title="Abrir cliente de correo con todos los emails en copia oculta (BCC)"
+                            >
+                              <span>📨 Mail masivo ({leadsWithEmail.length})</span>
+                            </a>
+                          )}
+                        </>
+                      )}
                     </div>
 
                     {pendingList.length > 0 && (
@@ -2063,6 +2133,9 @@ export default function AdminAlbums() {
                   <div className="space-y-2 overflow-y-auto pr-1 flex-1">
                     {list.map(lead => {
                       const waUrl = buildLeadWhatsAppUrl(leadsModalAlbum, lead);
+                      const mailtoUrl = buildLeadMailtoUrl(leadsModalAlbum, lead);
+                      const hasValidEmail = Boolean(lead.email && String(lead.email).trim().includes('@'));
+                      const hasWhatsapp = Boolean(lead.whatsapp && String(lead.whatsapp).trim());
                       return (
                         <div
                           key={lead.id}
@@ -2097,16 +2170,30 @@ export default function AdminAlbums() {
                             </p>
                           </div>
 
-                          <div className="flex items-center gap-2">
-                            <a
-                              href={waUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              onClick={() => markLeadNotified(leadsModalAlbum.id, lead.id, true)}
-                              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 transition-colors inline-flex items-center gap-1.5"
-                            >
-                              <span>📲 Enviar WhatsApp</span>
-                            </a>
+                          <div className="flex items-center flex-wrap gap-2">
+                            {hasWhatsapp && (
+                              <a
+                                href={waUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={() => markLeadNotified(leadsModalAlbum.id, lead.id, true)}
+                                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 transition-colors inline-flex items-center gap-1.5"
+                                title={`Enviar aviso por WhatsApp a ${lead.whatsapp}`}
+                              >
+                                <span>📲 Enviar WhatsApp</span>
+                              </a>
+                            )}
+
+                            {hasValidEmail && (
+                              <a
+                                href={mailtoUrl}
+                                onClick={() => markLeadNotified(leadsModalAlbum.id, lead.id, true)}
+                                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-cyan-500 hover:bg-cyan-400 text-black border border-cyan-400 shadow-sm transition-all inline-flex items-center gap-1.5"
+                                title={`Enviar correo a ${lead.email}`}
+                              >
+                                <span>📧 Enviar Mail</span>
+                              </a>
+                            )}
 
                             <button
                               type="button"
