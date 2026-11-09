@@ -327,11 +327,11 @@ export default function AlbumDetail() {
 
       {/* Controls */}
       <div className="max-w-7xl mx-auto px-4 py-7 space-y-3">
-        {/* Fila 1: Los 4 controles principales con exactamente el mismo ancho (1/4), altura (h-11), padding (px-4), esquinas (rounded-xl) y borde (border-cyan-500/60) */}
+        {/* Fila 1: Los 4 controles principales con exactamente el mismo ancho (1/4), altura (h-11), padding (px-3), esquinas (rounded-xl) y borde (border-cyan-500/60) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {/* 1. Dorsal search — mismo contenedor flex, altura h-11 y borde que los botones */}
-          <div className="h-11 w-full inline-flex items-center gap-2.5 px-4 rounded-xl bg-dark-800 border border-cyan-500/60 hover:border-cyan-400 focus-within:border-cyan-400 focus-within:ring-1 focus-within:ring-cyan-400 transition-all shadow-sm">
-            <Search className="w-4 h-4 flex-shrink-0 text-cyan-400 pointer-events-none" />
+          {/* 1. Dorsal search — mismo contenedor flex, altura h-11 y borde que los botones, con placeholder gris sutil */}
+          <div className="h-11 w-full inline-flex items-center gap-2 px-3 rounded-xl bg-dark-800 border border-cyan-500/60 hover:border-cyan-400 focus-within:border-cyan-400 focus-within:ring-1 focus-within:ring-cyan-400 transition-all shadow-sm">
+            <Search className="w-4 h-4 flex-shrink-0 text-gray-400 pointer-events-none" />
             <input
               type="text"
               inputMode="numeric"
@@ -343,7 +343,7 @@ export default function AlbumDetail() {
               placeholder="Nº de dorsal / pechera..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full h-full bg-transparent border-0 p-0 text-sm font-bold text-white placeholder-cyan-300 leading-none focus:outline-none focus:ring-0"
+              className="w-full h-full bg-transparent border-0 p-0 text-xs font-medium text-white placeholder-gray-400 placeholder:text-gray-400 placeholder:font-normal leading-none focus:outline-none focus:ring-0"
             />
             {search && (
               <button
@@ -360,21 +360,21 @@ export default function AlbumDetail() {
           <button
             type="button"
             onClick={() => setVisualFilterOpen(prev => !prev)}
-            className={`h-11 w-full inline-flex items-center justify-center gap-2 px-4 rounded-xl text-sm font-bold leading-none whitespace-nowrap border transition-all shadow-sm ${
+            className={`h-11 w-full inline-flex items-center justify-center gap-1.5 px-3 rounded-xl text-xs font-semibold leading-none whitespace-nowrap border transition-all shadow-sm ${
               visualFilterOpen || hasVisualFilter
                 ? 'bg-cyan-500 text-black border-cyan-400 shadow-lg shadow-cyan-500/20'
                 : 'bg-dark-800 border-cyan-500/60 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400'
             }`}
           >
-            <span className="leading-none truncate">🚴 Buscar por Casco / Bici / Ropa</span>
+            <span className="leading-none">🚴 Buscar por Casco / Bici / Ropa</span>
             {activeVisualCount > 0 && (
-              <span className={`px-1.5 py-0.5 rounded-full text-xs font-black leading-none flex-shrink-0 ${
+              <span className={`px-1.5 py-0.5 rounded-full text-[11px] font-bold leading-none flex-shrink-0 ${
                 visualFilterOpen || hasVisualFilter ? 'bg-black text-cyan-400' : 'bg-cyan-500 text-black'
               }`}>
                 {activeVisualCount}
               </span>
             )}
-            {visualFilterOpen ? <ChevronUp className="w-4 h-4 flex-shrink-0" /> : <ChevronDown className="w-4 h-4 flex-shrink-0" />}
+            {visualFilterOpen ? <ChevronUp className="w-3.5 h-3.5 flex-shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 flex-shrink-0" />}
           </button>
 
           {/* 3. Selfie search */}
@@ -382,20 +382,19 @@ export default function AlbumDetail() {
             type="button"
             onClick={() => setSelfieModalOpen(true)}
             title="Buscar mis fotos con una selfie"
-            className="h-11 w-full inline-flex items-center justify-center gap-2 px-4 rounded-xl text-sm font-bold leading-none whitespace-nowrap bg-dark-800 border border-cyan-500/60 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 transition-all shadow-sm"
+            className="h-11 w-full inline-flex items-center justify-center gap-1.5 px-3 rounded-xl text-xs font-semibold leading-none whitespace-nowrap bg-dark-800 border border-cyan-500/60 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 transition-all shadow-sm"
           >
-            <ScanFace className="w-4 h-4 flex-shrink-0 text-cyan-400" />
-            <span className="leading-none truncate">Buscarme con Selfie 🤳</span>
+            <ScanFace className="w-3.5 h-3.5 flex-shrink-0 text-cyan-400" />
+            <span className="leading-none">Buscarme con Selfie 🤳</span>
           </button>
 
           {/* 4. Botón Pre-registro (Lead Capture): Avisame cuando suban mis fotos */}
           <button
             type="button"
             onClick={openLeadModal}
-            className="h-11 w-full inline-flex items-center justify-center gap-2 px-4 rounded-xl text-sm font-bold leading-none whitespace-nowrap bg-dark-800 border border-cyan-500/60 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 transition-all shadow-sm"
+            className="h-11 w-full inline-flex items-center justify-center gap-1.5 px-3 rounded-xl text-xs font-semibold leading-none whitespace-nowrap bg-dark-800 border border-cyan-500/60 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 transition-all shadow-sm"
           >
-            <Bell className="w-4 h-4 flex-shrink-0 text-cyan-400" />
-            <span className="leading-none truncate">🔔 Avisame cuando suban mis fotos</span>
+            <span className="leading-none">🔔 Avisame cuando suban mis fotos</span>
           </button>
         </div>
 
