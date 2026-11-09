@@ -132,6 +132,7 @@ export default function AlbumDetail() {
         albumId,
         albumTitle: album?.title || '',
         dorsal: cleanDorsal,
+        bib: cleanDorsal,
         whatsapp: cleanWhatsapp,
         email: cleanEmail,
         nombre: cleanNombre,

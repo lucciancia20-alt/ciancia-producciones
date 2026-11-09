@@ -94,6 +94,7 @@ export default function AdminAlbums() {
   const [leadsModalAlbum, setLeadsModalAlbum] = useState(null); // album seleccionado para enviar avisos
   const [copiedLeadsSummary, setCopiedLeadsSummary] = useState(false);
   const [copiedLeadsEmails, setCopiedLeadsEmails] = useState(false);
+  const [copiedSingleLeadEmailId, setCopiedSingleLeadEmailId] = useState(null);
   const dropRef = useRef(null);
   const uploadFilesRef = useRef([]);
   const enableFaceDetectionRef = useRef(true);
@@ -484,13 +485,13 @@ export default function AdminAlbums() {
   };
 
   const buildLeadMailtoUrl = (album, lead) => {
-    const cleanEmail = String(lead?.email || '').trim();
+    const cleanEmail = String(lead?.email || lead?.mail || lead?.correo || '').trim();
     if (!cleanEmail) return '';
     const origin = typeof window !== 'undefined' ? window.location.origin : 'https://ciancia-producciones.onrender.com';
-    const albumUrl = `${origin}/album/${album.id}`;
-    const greeting = lead?.nombre ? `¡Hola ${lead.nombre}!` : '¡Hola!';
-    const subject = `¡Tus fotos de ${album.title || 'la carrera'} ya están listas! 📸`;
-    const body = `${greeting}\n\nYa subimos las fotos de tu dorsal #${lead.dorsal} en ${album.title || 'el álbum'}.\nPodés buscarlas acá: ${albumUrl}\n\n¡Saludos!\nCiancia Producciones`;
+    const albumId = album?.id || lead?.albumId || '';
+    const bib = lead?.bib || lead?.dorsal || '';
+    const subject = '¡Tus fotos de la carrera ya están listas!';
+    const body = `Hola! Ya subimos las fotos de tu dorsal #${bib}. Podes buscarlas y comprarlas acá: ${origin}/album/${albumId}`;
     return `mailto:${cleanEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
@@ -567,9 +568,11 @@ export default function AdminAlbums() {
     const list = albumLeads[album.id] || [];
     if (list.length === 0) return;
     const origin = typeof window !== 'undefined' ? window.location.origin : 'https://ciancia-producciones.onrender.com';
-    const lines = list.map(l =>
-      `Dorsal #${l.dorsal}${l.nombre ? ` (${l.nombre})` : ''} - WhatsApp: ${l.whatsapp || '—'} | Email: ${l.email || '—'} -> ${origin}/album/${album.id}`
-    );
+    const lines = list.map(l => {
+      const bib = l.bib || l.dorsal || '—';
+      const email = String(l.email || l.mail || l.correo || '').trim() || '—';
+      return `Dorsal #${bib}${l.nombre ? ` (${l.nombre})` : ''} - WhatsApp: ${l.whatsapp || '—'} | Email: ${email} -> ${origin}/album/${album.id}`;
+    });
     try {
       await navigator.clipboard.writeText(lines.join('\n'));
       setCopiedLeadsSummary(true);
@@ -581,12 +584,24 @@ export default function AdminAlbums() {
 
   const handleCopyLeadsEmails = async (album) => {
     const list = albumLeads[album.id] || [];
-    const emails = [...new Set(list.map(l => String(l?.email || '').trim()).filter(e => e && e.includes('@')))];
+    const emails = [...new Set(list.map(l => String(l?.email || l?.mail || l?.correo || '').trim()).filter(e => e && e.includes('@')))];
     if (emails.length === 0) return;
     try {
       await navigator.clipboard.writeText(emails.join(', '));
       setCopiedLeadsEmails(true);
       setTimeout(() => setCopiedLeadsEmails(false), 2200);
+    } catch {
+      // noop
+    }
+  };
+
+  const handleCopySingleLeadEmail = async (lead) => {
+    const cleanEmail = String(lead?.email || lead?.mail || lead?.correo || '').trim();
+    if (!cleanEmail) return;
+    try {
+      await navigator.clipboard.writeText(cleanEmail);
+      setCopiedSingleLeadEmailId(lead.id);
+      setTimeout(() => setCopiedSingleLeadEmailId(prev => (prev === lead.id ? null : prev)), 2200);
     } catch {
       // noop
     }
@@ -2132,9 +2147,11 @@ export default function AdminAlbums() {
                   {/* Lista de corredores */}
                   <div className="space-y-2 overflow-y-auto pr-1 flex-1">
                     {list.map(lead => {
+                      const leadBib = lead.bib || lead.dorsal;
+                      const leadEmail = String(lead.email || lead.mail || lead.correo || '').trim();
                       const waUrl = buildLeadWhatsAppUrl(leadsModalAlbum, lead);
                       const mailtoUrl = buildLeadMailtoUrl(leadsModalAlbum, lead);
-                      const hasValidEmail = Boolean(lead.email && String(lead.email).trim().includes('@'));
+                      const hasValidEmail = Boolean(leadEmail && leadEmail.includes('@'));
                       const hasWhatsapp = Boolean(lead.whatsapp && String(lead.whatsapp).trim());
                       return (
                         <div
@@ -2148,7 +2165,7 @@ export default function AdminAlbums() {
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="px-2 py-0.5 rounded-md bg-neon-green/20 border border-neon-green/40 text-neon-green font-mono font-black text-xs">
-                                Dorsal #{lead.dorsal}
+                                Dorsal #{leadBib}
                               </span>
                               {lead.nombre && (
                                 <span className="text-white font-bold text-xs">{lead.nombre}</span>
@@ -2163,10 +2180,14 @@ export default function AdminAlbums() {
                                 </span>
                               )}
                             </div>
-                            <p className="text-xs text-gray-300 mt-1">
+                            <p className="text-xs text-gray-300 mt-1 flex items-center flex-wrap gap-x-2 gap-y-1">
                               {lead.whatsapp && <span>📱 WhatsApp: <strong>{lead.whatsapp}</strong></span>}
-                              {lead.whatsapp && lead.email && <span className="mx-1.5 text-gray-500">·</span>}
-                              {lead.email && <span>✉️ {lead.email}</span>}
+                              {lead.whatsapp && <span className="text-gray-500">·</span>}
+                              {hasValidEmail ? (
+                                <span>✉️ <strong>{leadEmail}</strong></span>
+                              ) : (
+                                <span className="text-amber-400/80 italic">⚠️ Sin email registrado</span>
+                              )}
                             </p>
                           </div>
 
@@ -2184,15 +2205,37 @@ export default function AdminAlbums() {
                               </a>
                             )}
 
-                            {hasValidEmail && (
-                              <a
-                                href={mailtoUrl}
-                                onClick={() => markLeadNotified(leadsModalAlbum.id, lead.id, true)}
-                                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-cyan-500 hover:bg-cyan-400 text-black border border-cyan-400 shadow-sm transition-all inline-flex items-center gap-1.5"
-                                title={`Enviar correo a ${lead.email}`}
+                            {hasValidEmail ? (
+                              <>
+                                <a
+                                  href={mailtoUrl}
+                                  onClick={() => {
+                                    setTimeout(() => markLeadNotified(leadsModalAlbum.id, lead.id, true), 350);
+                                  }}
+                                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-cyan-500 hover:bg-cyan-400 text-black border border-cyan-400 shadow-sm transition-all inline-flex items-center gap-1.5"
+                                  title={`Abrir correo para ${leadEmail}`}
+                                >
+                                  <span>📧 Enviar Mail</span>
+                                </a>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopySingleLeadEmail(lead)}
+                                  className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-dark-800 hover:bg-dark-600 text-cyan-300 border border-cyan-500/40 hover:border-cyan-400 transition-colors inline-flex items-center gap-1"
+                                  title={`Copiar dirección de correo (${leadEmail})`}
+                                >
+                                  <span>{copiedSingleLeadEmailId === lead.id ? '✅ Copiado' : '📋 Copiar email'}</span>
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled
+                                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-dark-800 text-gray-500 border border-dark-600 cursor-not-allowed inline-flex items-center gap-1.5 opacity-75"
+                                title="Este corredor no ingresó correo electrónico al pre-registrarse"
                               >
-                                <span>📧 Enviar Mail</span>
-                              </a>
+                                <span>Sin email registrado</span>
+                              </button>
                             )}
 
                             <button
