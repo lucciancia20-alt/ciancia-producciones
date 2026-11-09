@@ -84,7 +84,7 @@ export function drawWatermarks(ctx, W, H, options = {}) {
   ctx.restore();
 
   // ── 2) Patrón repetido diagonal en letras chicas: "Ciancia Producciones" ───
-  const smallSize = Math.max(11, Math.round(minDim / 42));
+  const smallSize = Math.max(11, Math.round(minDim / 40));
   ctx.save();
   ctx.font         = `800 ${smallSize}px "Inter", "Arial Black", sans-serif`;
   ctx.textAlign    = 'center';
@@ -94,8 +94,8 @@ export function drawWatermarks(ctx, W, H, options = {}) {
   }
 
   const measured = ctx.measureText(smallDiagonalText).width;
-  const stepX    = Math.round(measured * 1.55 + 95);
-  const stepY    = Math.round(Math.max(smallSize * 7.5, measured * 0.56));
+  const stepX    = Math.round(measured * 1.5 + 85);
+  const stepY    = Math.round(Math.max(smallSize * 7.2, measured * 0.54));
 
   for (let row = -2; row < H / stepY + 3; row++) {
     for (let col = -1; col < W / stepX + 2; col++) {
@@ -104,11 +104,16 @@ export function drawWatermarks(ctx, W, H, options = {}) {
       ctx.translate(col * stepX + offsetX, row * stepY);
       ctx.rotate(-Math.PI / 6);
 
-      ctx.lineWidth   = Math.max(1.5, smallSize * 0.12);
-      ctx.strokeStyle = 'rgba(0, 0, 0, 0.22)';
+      ctx.shadowColor   = 'rgba(0, 0, 0, 0.65)';
+      ctx.shadowBlur    = 3;
+      ctx.shadowOffsetX = 1;
+      ctx.shadowOffsetY = 1;
+
+      ctx.lineWidth   = Math.max(1.8, smallSize * 0.15);
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.52)';
       ctx.strokeText(smallDiagonalText, 0, 0);
 
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.20)';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.46)';
       ctx.fillText(smallDiagonalText, 0, 0);
       ctx.restore();
     }
@@ -116,7 +121,7 @@ export function drawWatermarks(ctx, W, H, options = {}) {
   ctx.restore();
 
   // ── 3) Marca central principal con el nombre del álbum en letras grandes ──
-  let bigSize = Math.max(18, Math.round(minDim / 13.5));
+  let bigSize = Math.max(19, Math.round(minDim / 13));
   ctx.save();
   ctx.translate(W / 2, H / 2);
   ctx.rotate(-Math.PI / 6);
@@ -132,17 +137,20 @@ export function drawWatermarks(ctx, W, H, options = {}) {
   const maxCenterWidth = diag * 0.74;
   const measuredCenter = ctx.measureText(mainCenterText).width;
   if (measuredCenter > maxCenterWidth && measuredCenter > 0) {
-    bigSize = Math.max(13, Math.floor(bigSize * (maxCenterWidth / measuredCenter)));
+    bigSize = Math.max(14, Math.floor(bigSize * (maxCenterWidth / measuredCenter)));
     ctx.font = `900 ${bigSize}px "Inter", "Arial Black", sans-serif`;
     if ('letterSpacing' in ctx) {
       ctx.letterSpacing = `${Math.max(2, Math.round(bigSize * 0.12))}px`;
     }
   }
 
-  // Líneas de guarda paralelas que cruzan todo el torso del corredor
-  const bandHalf = Math.round(bigSize * 1.05);
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
-  ctx.lineWidth   = Math.max(1, minDim / 480);
+  // Fajita central translúcida + líneas de guarda paralelas que cruzan todo el torso del corredor
+  const bandHalf = Math.round(bigSize * 1.08);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.16)';
+  ctx.fillRect(-diag, -bandHalf, diag * 2, bandHalf * 2);
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.42)';
+  ctx.lineWidth   = Math.max(1.2, minDim / 420);
   ctx.beginPath();
   ctx.moveTo(-diag, -bandHalf);
   ctx.lineTo(diag, -bandHalf);
@@ -150,7 +158,7 @@ export function drawWatermarks(ctx, W, H, options = {}) {
   ctx.lineTo(diag, bandHalf);
   ctx.stroke();
 
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.20)';
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)';
   ctx.beginPath();
   ctx.moveTo(-diag, -bandHalf - 2);
   ctx.lineTo(diag, -bandHalf - 2);
@@ -158,26 +166,31 @@ export function drawWatermarks(ctx, W, H, options = {}) {
   ctx.lineTo(diag, bandHalf + 2);
   ctx.stroke();
 
-  // Texto central principal (Nombre dinámico del álbum)
-  ctx.shadowColor   = 'rgba(0, 0, 0, 0.55)';
-  ctx.shadowBlur    = 6;
-  ctx.shadowOffsetX = 1;
-  ctx.shadowOffsetY = 1;
+  // Texto central principal (Nombre dinámico del álbum) con borde oscuro y sombra de alto contraste
+  ctx.shadowColor   = 'rgba(0, 0, 0, 0.80)';
+  ctx.shadowBlur    = 8;
+  ctx.shadowOffsetX = 1.5;
+  ctx.shadowOffsetY = 1.5;
 
-  ctx.lineWidth   = Math.max(2, bigSize * 0.08);
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.32)';
+  ctx.lineWidth   = Math.max(2.6, bigSize * 0.11);
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.65)';
   ctx.strokeText(mainCenterText, 0, 0);
 
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.34)';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.68)';
   ctx.fillText(mainCenterText, 0, 0);
 
   // Sub-bandas superior e inferior en letras chicas con "Ciancia Producciones"
-  const subSize = Math.max(10, Math.round(bigSize * 0.44));
+  const subSize = Math.max(10, Math.round(bigSize * 0.45));
   ctx.font = `800 ${subSize}px "Inter", "Arial Black", sans-serif`;
   if ('letterSpacing' in ctx) {
     ctx.letterSpacing = `${Math.max(2, Math.round(subSize * 0.22))}px`;
   }
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
+  ctx.lineWidth   = Math.max(1.8, subSize * 0.14);
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.58)';
+  ctx.strokeText(smallDiagonalText, 0, bigSize * 1.75);
+  ctx.strokeText(smallDiagonalText, 0, -bigSize * 1.75);
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.52)';
   ctx.fillText(smallDiagonalText, 0, bigSize * 1.75);
   ctx.fillText(smallDiagonalText, 0, -bigSize * 1.75);
 
@@ -660,7 +673,7 @@ function VideoViewer({ media, onClose, albumTitle = '' }) {
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="flex items-center justify-center">
                 <span
-                  className="text-white/14 font-black text-[10px] rotate-[-28deg] whitespace-nowrap"
+                  className="text-white/45 font-extrabold text-[10px] rotate-[-28deg] whitespace-nowrap drop-shadow-[0_1px_3px_rgba(0,0,0,0.85)]"
                   style={{ letterSpacing: '0.22em', wordSpacing: '0.35em' }}
                 >
                   Ciancia Producciones
@@ -669,15 +682,15 @@ function VideoViewer({ media, onClose, albumTitle = '' }) {
             ))}
           </div>
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="rotate-[-28deg] text-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.6)]">
+            <div className="rotate-[-28deg] text-center drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
               <p
-                className="text-white/28 font-black text-xl whitespace-nowrap"
+                className="text-white/65 font-black text-xl whitespace-nowrap"
                 style={{ letterSpacing: '0.18em', wordSpacing: '0.35em' }}
               >
                 {resolvedAlbumTitle}
               </p>
               <p
-                className="text-white/18 font-extrabold text-xs whitespace-nowrap mt-3"
+                className="text-white/50 font-extrabold text-xs whitespace-nowrap mt-3"
                 style={{ letterSpacing: '0.24em', wordSpacing: '0.35em' }}
               >
                 Ciancia Producciones
