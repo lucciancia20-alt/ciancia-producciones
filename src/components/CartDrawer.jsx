@@ -74,28 +74,34 @@ export default function CartDrawer({ onClose }) {
             )}
 
             {/* Coupon input */}
-            <div className="flex gap-2">
-              <input
-                type="text"
-                autoComplete="off"
-                autoCorrect="off"
-                spellCheck="false"
-                data-lpignore="true"
-                data-form-type="other"
-                placeholder="Código de cupón"
-                value={couponInput}
-                onChange={e => setCouponInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleApplyCoupon()}
-                className="input-dark text-sm py-2 flex-1 font-mono uppercase"
-              />
-              <button
-                onClick={handleApplyCoupon}
-                disabled={couponLoading || !couponInput.trim()}
-                title="Aplicar cupón"
-                className="bg-dark-600 hover:bg-dark-500 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-dark-500 disabled:opacity-40 flex items-center justify-center min-w-[40px]"
-              >
-                {couponLoading ? <Loader2 className="w-4 h-4 animate-spin text-neon-green" /> : <Tag className="w-4 h-4" />}
-              </button>
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-gray-300 flex items-center gap-1.5">
+                <Tag className="w-3.5 h-3.5 text-neon-green" />
+                <span>¿Tenés un código de descuento?</span>
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck="false"
+                  data-lpignore="true"
+                  data-form-type="other"
+                  placeholder="Ej: TEAM-BIKE-15, RUNNING20"
+                  value={couponInput}
+                  onChange={e => setCouponInput(e.target.value.toUpperCase())}
+                  onKeyDown={e => e.key === 'Enter' && handleApplyCoupon()}
+                  className="input-dark text-sm py-2 flex-1 font-mono uppercase"
+                />
+                <button
+                  onClick={handleApplyCoupon}
+                  disabled={couponLoading || !couponInput.trim()}
+                  title="Aplicar cupón"
+                  className="bg-neon-green/15 hover:bg-neon-green hover:text-black text-neon-green px-3 py-2 rounded-lg text-xs font-bold transition-colors border border-neon-green/40 disabled:opacity-40 flex items-center justify-center min-w-[68px]"
+                >
+                  {couponLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Aplicar'}
+                </button>
+              </div>
             </div>
             {couponError && <p className="text-red-400 text-xs">{couponError}</p>}
             {coupon && (

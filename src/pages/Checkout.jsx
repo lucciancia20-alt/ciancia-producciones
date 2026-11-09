@@ -147,6 +147,8 @@ export default function Checkout() {
         subtotal,
         packDiscount,
         couponCode:     coupon?.code || null,
+        couponType:     coupon?.type || null,
+        couponValue:    coupon?.value || null,
         couponDiscount,
         total,
         paymentMethod:  method,
@@ -430,7 +432,11 @@ export default function Checkout() {
                 </div>
 
                 {/* ── Cupón de descuento ── */}
-                <div className="border-t border-dark-600 pt-3 pb-3">
+                <div className="border-t border-dark-600 pt-3 pb-3 space-y-1.5">
+                  <label className="text-xs font-semibold text-gray-300 flex items-center gap-1.5">
+                    <Tag className="w-3.5 h-3.5 text-neon-green" />
+                    <span>¿Tenés un código de descuento?</span>
+                  </label>
                   {coupon ? (
                     <div className="flex items-center justify-between bg-dark-700/80 border border-neon-green/30 rounded-xl px-3 py-2">
                       <div className="flex items-center gap-2 min-w-0">
@@ -440,7 +446,7 @@ export default function Checkout() {
                             {coupon.code}
                           </span>
                           <span className="text-[10px] text-neon-green block truncate">
-                            {coupon.label}
+                            {coupon.label} (-{formatPrice(couponDiscount)})
                           </span>
                         </div>
                       </div>
@@ -463,21 +469,21 @@ export default function Checkout() {
                           data-lpignore="true"
                           data-form-type="other"
                           value={couponInput}
-                          onChange={e => setCouponInput(e.target.value)}
+                          onChange={e => setCouponInput(e.target.value.toUpperCase())}
                           onKeyDown={e => {
                             if (e.key === 'Enter') {
                               e.preventDefault();
                               applyCoupon(couponInput);
                             }
                           }}
-                          placeholder="Código de cupón"
+                          placeholder="Ej: TEAM-BIKE-15, RUNNING20"
                           className="input-dark text-xs py-1.5 px-2.5 flex-1 font-mono uppercase"
                         />
                         <button
                           type="button"
                           onClick={() => applyCoupon(couponInput)}
                           disabled={couponLoading || !couponInput.trim()}
-                          className="bg-dark-600 hover:bg-dark-500 border border-dark-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40"
+                          className="bg-neon-green/15 hover:bg-neon-green hover:text-black border border-neon-green/40 text-neon-green px-3 py-1.5 rounded-lg text-xs font-bold transition-colors disabled:opacity-40"
                         >
                           {couponLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Aplicar'}
                         </button>

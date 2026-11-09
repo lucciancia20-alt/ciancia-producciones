@@ -296,6 +296,11 @@ export default function AdminOrders() {
                         }`}>
                           {order.paymentMethod === 'transfer' ? 'Transferencia bancaria' : 'Mercado Pago'}
                         </span>
+                        {order.couponCode && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-neon-green/15 text-neon-green border border-neon-green/40">
+                            🏷️ Cupón: {order.couponCode} {order.couponDiscount ? `(-${formatPrice(order.couponDiscount)})` : ''}
+                          </span>
+                        )}
                         {(order.voucherUrl || order.voucherBase64) ? (
                           <span className="text-[11px] text-cyan-400 font-medium">📎 Comprobante adjunto</span>
                         ) : (
@@ -403,6 +408,11 @@ export default function AdminOrders() {
                 <p className="text-xs text-gray-500 mt-0.5">
                   {selectedOrder.cliente?.email} {selectedOrder.cliente?.telefono ? `· 📱 ${selectedOrder.cliente.telefono}` : ''}
                 </p>
+                {selectedOrder.couponCode && (
+                  <p className="text-xs text-neon-green font-mono font-bold mt-1">
+                    🏷️ Cupón aplicado: {selectedOrder.couponCode} {selectedOrder.couponDiscount ? `(Descuento: -${formatPrice(selectedOrder.couponDiscount)})` : ''}
+                  </p>
+                )}
               </div>
               <button onClick={() => setSelectedOrder(null)} className="text-gray-400 hover:text-white p-1">
                 <X className="w-5 h-5" />

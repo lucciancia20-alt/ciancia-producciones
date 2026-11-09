@@ -10,7 +10,7 @@ import {
   Eye, ChevronDown, ChevronUp, AlertCircle, CheckCircle2,
   Bot, ScanFace, Save, Trash2, Tag, RefreshCw, Pencil, Palette, Star, Sparkles, Bell,
 } from 'lucide-react';
-import { uploadToCloudinary } from '../../services/cloudinary';
+import { uploadToCloudinary, extractCloudinaryPublicId } from '../../services/cloudinary';
 import { VISUAL_COLOR_PALETTE, normalizeColorList } from '../../constants/visualColors';
 
 const COLOR_MAP = Object.fromEntries(VISUAL_COLOR_PALETTE.map(c => [c.id, c]));
@@ -61,8 +61,9 @@ export default function AdminAlbums() {
   const [creating, setCreating]         = useState(false);
   const [newAlbum, setNewAlbum]         = useState({
     title: '', category: 'Trail Running', location: '', description: '', coverUrl: '',
-    pricePhoto: '', priceVideo: '',
+    pricePhoto: '', priceVideo: '', eventLogoUrl: '', eventLogoPublicId: '',
   });
+  const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadFiles, setUploadFiles]   = useState([]);   // { id, file, dorsals, helmetColors, bikeColors, jerseyColors, status, progress, error, result }
   const [uploadAlbumId, setUploadAlbumId] = useState('');
   const [selectedQueueCoverId, setSelectedQueueCoverId] = useState(null); // ID de foto en cola elegida para ser portada
@@ -80,7 +81,9 @@ export default function AdminAlbums() {
   const [savingMediaId, setSavingMediaId]       = useState(null);
   const [savingAlbumPriceId, setSavingAlbumPriceId] = useState(null);
   const [editingAlbumId, setEditingAlbumId]     = useState(null);
-  const [albumInfoEdits, setAlbumInfoEdits]     = useState({ title: '', location: '', category: 'Trail Running' });
+  const [albumInfoEdits, setAlbumInfoEdits]     = useState({
+    title: '', location: '', category: 'Trail Running', eventLogoUrl: '', eventLogoPublicId: '',
+  });
   const [savingAlbumInfoId, setSavingAlbumInfoId] = useState(null);
   const [deletingAlbumId, setDeletingAlbumId] = useState(null);
   const [confirmDeleteAlbum, setConfirmDeleteAlbum] = useState(null);
@@ -244,12 +247,33 @@ export default function AdminAlbums() {
     }
   };
 
+  const handleUploadEventLogo = async (file, mode = 'create') => {
+    if (!file) return;
+    setUploadingLogo(true);
+    try {
+      const res = await uploadToCloudinary(file, { folder: 'ciancia/event_logos' });
+      const logoUrl = res.secure_url || res.url;
+      const logoPid = res.publicId || extractCloudinaryPublicId(logoUrl);
+      if (mode === 'create') {
+        setNewAlbum(p => ({ ...p, eventLogoUrl: logoUrl, eventLogoPublicId: logoPid }));
+      } else {
+        setAlbumInfoEdits(p => ({ ...p, eventLogoUrl: logoUrl, eventLogoPublicId: logoPid }));
+      }
+    } catch (e) {
+      alert('Error al subir el logo del evento a Cloudinary: ' + e.message);
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
+
   const startEditAlbumInfo = (album) => {
     setEditingAlbumId(album.id);
     setAlbumInfoEdits({
       title: album.title || '',
       location: album.location || '',
       category: album.category || 'Trail Running',
+      eventLogoUrl: album.eventLogoUrl || '',
+      eventLogoPublicId: album.eventLogoPublicId || extractCloudinaryPublicId(album.eventLogoUrl || ''),
     });
   };
 
@@ -261,10 +285,16 @@ export default function AdminAlbums() {
     }
     setSavingAlbumInfoId(albumId);
     try {
+      const cleanLogoUrl = (albumInfoEdits.eventLogoUrl || '').trim();
+      const cleanLogoPid = cleanLogoUrl
+        ? ((albumInfoEdits.eventLogoPublicId || '').trim() || extractCloudinaryPublicId(cleanLogoUrl))
+        : '';
       const updates = {
         title: cleanTitle,
         location: (albumInfoEdits.location || '').trim(),
         category: albumInfoEdits.category || 'Trail Running',
+        eventLogoUrl: cleanLogoUrl,
+        eventLogoPublicId: cleanLogoPid,
       };
       await updateDoc(doc(db, 'albums', albumId), updates);
       setAlbums(prev => prev.map(a => a.id === albumId ? { ...a, ...updates } : a));
@@ -527,10 +557,16 @@ export default function AdminAlbums() {
       const pricePhoto = newAlbum.pricePhoto ? Number(newAlbum.pricePhoto) : 2000;
       const priceVideo = newAlbum.priceVideo ? Number(newAlbum.priceVideo) : 3000;
       const cleanCover = (newAlbum.coverUrl || '').trim();
+      const cleanLogoUrl = (newAlbum.eventLogoUrl || '').trim();
+      const cleanLogoPid = cleanLogoUrl
+        ? ((newAlbum.eventLogoPublicId || '').trim() || extractCloudinaryPublicId(cleanLogoUrl))
+        : '';
       const albumData = {
         ...newAlbum,
         coverUrl: cleanCover,
         cover: cleanCover,
+        eventLogoUrl: cleanLogoUrl,
+        eventLogoPublicId: cleanLogoPid,
         pricePhoto,
         priceVideo,
         date: Timestamp.now(),
@@ -540,7 +576,10 @@ export default function AdminAlbums() {
       };
       const docRef = await addDoc(collection(db, 'albums'), albumData);
       setAlbums(prev => [{ id: docRef.id, ...albumData }, ...prev]);
-      setNewAlbum({ title: '', category: 'Trail Running', location: '', description: '', coverUrl: '', pricePhoto: '', priceVideo: '' });
+      setNewAlbum({
+        title: '', category: 'Trail Running', location: '', description: '', coverUrl: '',
+        pricePhoto: '', priceVideo: '', eventLogoUrl: '', eventLogoPublicId: '',
+      });
       setShowCreate(false);
     } catch (e) { alert('Error: ' + e.message); }
     finally { setCreating(false); }
@@ -706,9 +745,11 @@ export default function AdminAlbums() {
       const jerseyColors = normalizeColorList(item.jerseyColors || []);
 
       try {
-        // 1) Subida a Cloudinary con reporte de progreso
+        // 1) Subida a Cloudinary con reporte de progreso + marca de agua dinámica del evento en la vista previa (thumb)
         const result = await uploadToCloudinary(item.file, {
           folder,
+          eventLogoPublicId: album?.eventLogoPublicId || '',
+          eventLogoUrl:      album?.eventLogoUrl || '',
           onProgress: (pct) => patchFile(item.id, { progress: pct }),
         });
 
@@ -718,13 +759,15 @@ export default function AdminAlbums() {
         const albumVideoPrice = Number(album?.priceVideo) || 3000;
         const finalPrice = isVideo ? albumVideoPrice : albumPhotoPrice;
 
-        // 2) Guardado en Firestore (incluyendo dorsales y atributos visuales de ciclismo/running)
+        // 2) Guardado en Firestore (incluyendo dorsales, atributos visuales y referencia al logo del evento)
         await addDoc(collection(db, 'media'), {
           type:         isVideo ? 'video' : 'photo',
           fileName:     item.file.name,
-          url:          result.url,         // URL HD optimizada (f_auto,q_auto)
-          thumb:        result.thumb,       // Thumbnail 400px
+          url:          result.url,         // URL HD optimizada 100% LIMPIA sin marca de agua para descarga
+          thumb:        result.thumb,       // Muestra baja resolución con transformación de marca de agua dinámica (fl_layer_apply)
           publicId:     result.publicId,    // Para futuras transformaciones
+          eventLogoUrl:      album?.eventLogoUrl || '',
+          eventLogoPublicId: album?.eventLogoPublicId || '',
           duration:     result.duration || null,
           dorsals:      dorsalList,
           bibs:         dorsalList,
@@ -897,6 +940,65 @@ export default function AdminAlbums() {
                   placeholder="Por defecto: $3.000"
                   className="input-dark font-mono"
                 />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="text-sm text-gray-400 mb-1 block">
+                  Logo del Evento (PNG transparente — Marca de agua dinámica en muestras) — opcional
+                </label>
+                <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center">
+                  <input
+                    type="text"
+                    value={newAlbum.eventLogoUrl}
+                    onChange={e => {
+                      const val = e.target.value;
+                      setNewAlbum(p => ({
+                        ...p,
+                        eventLogoUrl: val,
+                        eventLogoPublicId: extractCloudinaryPublicId(val) || p.eventLogoPublicId,
+                      }));
+                    }}
+                    placeholder="Pegá la URL del logo PNG transparente o subilo con el botón →"
+                    className="input-dark text-xs flex-1"
+                  />
+                  <label className="btn-outline-neon text-xs py-2.5 px-3.5 cursor-pointer inline-flex items-center justify-center gap-2 whitespace-nowrap">
+                    {uploadingLogo ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                    <span>{uploadingLogo ? 'Subiendo PNG...' : 'Subir PNG transparente'}</span>
+                    <input
+                      type="file"
+                      accept="image/png,image/webp,image/svg+xml,image/*"
+                      onChange={e => {
+                        const file = e.target.files?.[0];
+                        if (file) handleUploadEventLogo(file, 'create');
+                        e.target.value = '';
+                      }}
+                      className="hidden"
+                      disabled={uploadingLogo}
+                    />
+                  </label>
+                  {newAlbum.eventLogoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setNewAlbum(p => ({ ...p, eventLogoUrl: '', eventLogoPublicId: '' }))}
+                      className="text-xs text-red-400 hover:text-red-300 px-2.5 py-2 rounded-lg bg-red-500/10 border border-red-500/30"
+                      title="Quitar logo del evento"
+                    >
+                      Quitar
+                    </button>
+                  )}
+                </div>
+                {newAlbum.eventLogoUrl && (
+                  <div className="mt-2 flex items-center gap-3 bg-dark-800 border border-cyan-500/30 rounded-xl p-2.5">
+                    <img
+                      src={newAlbum.eventLogoUrl}
+                      alt="Logo del evento"
+                      className="h-10 w-auto max-w-[120px] object-contain bg-dark-900/80 p-1 rounded border border-dark-600"
+                    />
+                    <div className="text-xs text-gray-300">
+                      <p className="font-bold text-cyan-400">✓ Logo del evento listo para estampar (fl_layer_apply,g_center,o_35)</p>
+                      <p className="text-[11px] text-gray-400">Se aplicará sobre las vistas previas públicas manteniendo las originales HD 100% limpias.</p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
             <div>
@@ -1373,6 +1475,11 @@ export default function AdminAlbums() {
                             {leadsForAlbum.length} {leadsForAlbum.length === 1 ? 'corredor esperando aviso' : 'corredores esperando aviso'}
                           </span>
                         </span>
+                        {album.eventLogoUrl && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-cyan-500/15 border border-cyan-500/40 text-cyan-300">
+                            <span>🖼️ Logo Marca de Agua</span>
+                          </span>
+                        )}
                       </div>
                       <p className="text-gray-400 text-xs mt-0.5">{album.category} · {album.location} · {album.totalMedia || 0} archivos</p>
                     </div>
@@ -1482,6 +1589,63 @@ export default function AdminAlbums() {
                           >
                             {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                           </select>
+                        </div>
+                        <div className="sm:col-span-3">
+                          <label className="text-xs text-gray-400 mb-1 block">
+                            Logo del Evento (PNG transparente para marca de agua dinámica en muestras)
+                          </label>
+                          <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+                            <input
+                              type="text"
+                              value={albumInfoEdits.eventLogoUrl || ''}
+                              onChange={e => {
+                                const val = e.target.value;
+                                setAlbumInfoEdits(p => ({
+                                  ...p,
+                                  eventLogoUrl: val,
+                                  eventLogoPublicId: extractCloudinaryPublicId(val) || p.eventLogoPublicId,
+                                }));
+                              }}
+                              placeholder="URL del logo PNG transparente o subí un archivo →"
+                              className="input-dark text-xs py-1.5 flex-1"
+                            />
+                            <label className="btn-outline-neon text-xs py-1.5 px-3 cursor-pointer inline-flex items-center justify-center gap-1.5 whitespace-nowrap">
+                              {uploadingLogo ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                              <span>{uploadingLogo ? 'Subiendo...' : 'Subir PNG'}</span>
+                              <input
+                                type="file"
+                                accept="image/png,image/webp,image/svg+xml,image/*"
+                                onChange={e => {
+                                  const file = e.target.files?.[0];
+                                  if (file) handleUploadEventLogo(file, 'edit');
+                                  e.target.value = '';
+                                }}
+                                className="hidden"
+                                disabled={uploadingLogo}
+                              />
+                            </label>
+                            {albumInfoEdits.eventLogoUrl && (
+                              <button
+                                type="button"
+                                onClick={() => setAlbumInfoEdits(p => ({ ...p, eventLogoUrl: '', eventLogoPublicId: '' }))}
+                                className="text-xs text-red-400 hover:text-red-300 px-2.5 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30"
+                              >
+                                Quitar logo
+                              </button>
+                            )}
+                          </div>
+                          {albumInfoEdits.eventLogoUrl && (
+                            <div className="mt-2 flex items-center gap-2.5 bg-dark-900/70 border border-cyan-500/30 rounded-lg p-2">
+                              <img
+                                src={albumInfoEdits.eventLogoUrl}
+                                alt="Logo del evento"
+                                className="h-8 w-auto max-w-[100px] object-contain"
+                              />
+                              <span className="text-[11px] text-cyan-300 font-medium">
+                                Marca de agua dinámica activa (fl_layer_apply,g_center,o_35) — originales HD limpias
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">

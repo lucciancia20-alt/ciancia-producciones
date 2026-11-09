@@ -199,11 +199,11 @@ export default function AdminCoupons() {
                 type="text"
                 value={form.code}
                 onChange={e => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))}
-                placeholder="EJ. TORNQUIST20"
+                placeholder="EJ: TEAM-BIKE-15 o RUNNING20"
                 className="input-dark font-mono uppercase tracking-wider text-sm w-full"
                 required
               />
-              <span className="text-[11px] text-gray-500 mt-1 block">Sin espacios, en mayúsculas</span>
+              <span className="text-[11px] text-gray-500 mt-1 block">Ej: TEAM-BIKE-15, RUNNING20</span>
             </div>
 
             {/* Tipo de Descuento */}

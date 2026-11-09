@@ -11,11 +11,13 @@ const BASE_URL = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}`;
  *
  * @param {File}     file        - Archivo a subir (imagen o video)
  * @param {Object}   options
- * @param {string}   [options.folder]     - Carpeta dentro del cloud (ej: 'ciancia/trail-2024')
- * @param {Function} [options.onProgress] - Callback (0-100)
+ * @param {string}   [options.folder]            - Carpeta dentro del cloud (ej: 'ciancia/trail-2024')
+ * @param {Function} [options.onProgress]        - Callback (0-100)
+ * @param {string}   [options.eventLogoPublicId] - Public ID en Cloudinary del logo del evento para marca de agua dinámica
+ * @param {string}   [options.eventLogoUrl]      - URL del logo del evento (si no se tiene publicId explícito)
  * @returns {Promise<CloudinaryResult>}
  */
-export function uploadToCloudinary(file, { folder = 'ciancia', onProgress } = {}) {
+export function uploadToCloudinary(file, { folder = 'ciancia', onProgress, eventLogoPublicId = '', eventLogoUrl = '' } = {}) {
   return new Promise((resolve, reject) => {
     const isVideo  = file.type.startsWith('video/');
     const endpoint = isVideo ? `${BASE_URL}/video/upload` : `${BASE_URL}/image/upload`;
@@ -37,7 +39,7 @@ export function uploadToCloudinary(file, { folder = 'ciancia', onProgress } = {}
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           const data = JSON.parse(xhr.responseText);
-          resolve(buildResult(data, isVideo));
+          resolve(buildResult(data, isVideo, { eventLogoPublicId, eventLogoUrl }));
         } catch {
           reject(new Error('Respuesta inválida de Cloudinary'));
         }
@@ -60,22 +62,81 @@ export function uploadToCloudinary(file, { folder = 'ciancia', onProgress } = {}
 }
 
 /**
+ * Extrae el public_id de una URL de Cloudinary si pertenece al mismo cloud (`khzko7rr`).
+ */
+export function extractCloudinaryPublicId(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+  if (!rawUrl.includes(`res.cloudinary.com/${CLOUD_NAME}/image/upload/`)) return '';
+  const [, rest] = rawUrl.split('/image/upload/');
+  if (!rest) return '';
+
+  const segments = rest.split('/');
+  // Filtrar segmentos de transformación o versión (v1234567)
+  const cleanSegments = segments.filter((seg, idx) => {
+    if (idx < segments.length - 1) {
+      if (/^v\d+$/.test(seg)) return false;
+      if (seg.includes(',') || /^(w_|h_|c_|q_|f_|g_|ar_|e_|fl_|bo_|r_|o_|a_|b_|l_)/.test(seg)) return false;
+    }
+    return true;
+  });
+
+  const withExt = cleanSegments.join('/');
+  return withExt.replace(/\.(png|jpg|jpeg|webp|gif|svg)$/i, '');
+}
+
+/**
+ * Construye el segmento de transformación de marca de agua dinámica de Cloudinary
+ * (`l_<logo>/c_scale,w_0.42,fl_relative,o_35/fl_layer_apply,g_center`) a partir
+ * del publicId o URL del logo del evento.
+ */
+export function buildCloudinaryWatermarkTransform({ eventLogoPublicId = '', eventLogoUrl = '' } = {}) {
+  const resolvedPublicId = (eventLogoPublicId || '').trim() || extractCloudinaryPublicId(eventLogoUrl);
+  if (resolvedPublicId) {
+    // En Cloudinary los "/" dentro del public_id de un overlay se reemplazan por ":"
+    const overlayId = resolvedPublicId.replace(/\//g, ':');
+    return `l_${overlayId},w_0.42,fl_relative,o_35/fl_layer_apply,g_center`;
+  }
+  const cleanUrl = (eventLogoUrl || '').trim();
+  if (cleanUrl && /^https?:\/\//i.test(cleanUrl) && typeof btoa === 'function') {
+    try {
+      const b64 = btoa(cleanUrl).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      return `l_fetch:${b64},w_0.42,fl_relative,o_35/fl_layer_apply,g_center`;
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
+
+/**
  * Construye el objeto de resultado normalizado a partir de la respuesta de Cloudinary.
  * Usa c_limit para preservar siempre la relación de aspecto nativa (horizontal o vertical)
  * sin recortar ni deformar fotos 9:16, 3:4 o 16:9.
+ * La foto original (`url` y `secure_url`) se mantiene 100% limpia sin marca de agua para descarga HD.
+ * La miniatura/vista previa (`thumb`) incluye la transformación de marca de agua dinámica si el álbum tiene logo.
  */
-function buildResult(data, isVideo) {
+function buildResult(data, isVideo, { eventLogoPublicId = '', eventLogoUrl = '' } = {}) {
   const { public_id, secure_url, resource_type, format, duration, width, height } = data;
 
-  // URL de alta calidad reservada para la descarga post-compra manteniendo proporción original
+  // URL de alta calidad reservada para la descarga post-compra manteniendo proporción original (100% LIMPIA)
   const url = isVideo
     ? secure_url
     : buildImageUrl(public_id, 'w_3840,h_3840,c_limit,f_auto,q_auto:best');
 
-  // Muestra en baja resolución para grillas y visor público con lupa (máx 800px, comprimida q_55)
+  // Transformación opcional de marca de agua del evento para la muestra pública
+  const watermarkTransform = !isVideo
+    ? buildCloudinaryWatermarkTransform({ eventLogoPublicId, eventLogoUrl })
+    : '';
+
+  const baseThumbTransform = 'w_800,h_800,c_limit,q_55,f_auto';
+  const fullThumbTransform = watermarkTransform
+    ? `${baseThumbTransform}/${watermarkTransform}`
+    : baseThumbTransform;
+
+  // Muestra en baja resolución para grillas y visor público con lupa (máx 800px, comprimida q_55 + logo del evento)
   const thumb = isVideo
     ? buildVideoThumb(public_id)
-    : buildImageUrl(public_id, 'w_800,h_800,c_limit,q_55,f_auto');
+    : buildImageUrl(public_id, fullThumbTransform);
 
   return {
     publicId:     public_id,
@@ -102,24 +163,51 @@ function buildVideoThumb(publicId) {
 }
 
 /**
+ * Separa los segmentos de transformación de Cloudinary de la ruta real del archivo (`v123/folder/file.jpg`).
+ */
+function stripCloudinaryTransforms(rest) {
+  if (!rest) return '';
+  const segments = rest.split('/');
+  let startIdx = 0;
+  while (startIdx < segments.length - 1) {
+    const seg = segments[startIdx] || '';
+    const isTransform =
+      seg.includes(',') ||
+      /^(w_|h_|c_|q_|f_|g_|ar_|e_|fl_|bo_|r_|o_|a_|b_|l_|so_)/.test(seg);
+    if (isTransform) {
+      startIdx++;
+    } else {
+      break;
+    }
+  }
+  return segments.slice(startIdx).join('/');
+}
+
+/**
  * Transforma cualquier URL de imagen (Cloudinary o externa) en una muestra de baja
  * resolución y alta compresión para el catálogo público y el visor con lupa.
+ * Si se provee `eventLogoPublicId` o `eventLogoUrl` (o si la URL ya tenía `l_...`),
+ * aplica la capa de marca de agua dinámica de Cloudinary (`fl_layer_apply,g_center,o_35`).
  * Nunca expone la resolución original en el frontend público.
  */
-export function getLowResSampleUrl(rawUrl, { width = 800, quality = 55 } = {}) {
+export function getLowResSampleUrl(rawUrl, { width = 800, quality = 55, eventLogoPublicId = '', eventLogoUrl = '' } = {}) {
   if (!rawUrl || typeof rawUrl !== 'string') return '';
 
-  // 1) Si es una imagen alojada en Cloudinary, forzamos transformación w_{width},q_{quality},f_auto
+  // 1) Si es una imagen alojada en Cloudinary, forzamos transformación w_{width},q_{quality},f_auto (+ overlay si aplica)
   if (rawUrl.includes('res.cloudinary.com') && rawUrl.includes('/image/upload/')) {
     const [prefix, rest] = rawUrl.split('/image/upload/');
     if (rest) {
-      const segments = rest.split('/');
-      const firstSeg = segments[0] || '';
-      const looksLikeTransform =
-        firstSeg.includes(',') ||
-        /^(w_|h_|c_|q_|f_|g_|ar_|e_|fl_|bo_|r_|o_|a_|b_)/.test(firstSeg);
-      const cleanPath = looksLikeTransform ? segments.slice(1).join('/') : rest;
-      return `${prefix}/image/upload/w_${width},h_${width},c_limit,q_${quality},f_auto/${cleanPath}`;
+      // Preservar overlay existente si la URL ya lo traía estampado en thumb
+      const existingOverlayMatch = rest.match(/(l_[^/]+(?:\/[^/]+)?\/fl_layer_apply[^/]*)/);
+      const explicitWatermark = buildCloudinaryWatermarkTransform({ eventLogoPublicId, eventLogoUrl });
+      const watermarkLayer = explicitWatermark || (existingOverlayMatch ? existingOverlayMatch[1] : '');
+
+      const cleanPath = stripCloudinaryTransforms(rest);
+      const transformChain = watermarkLayer
+        ? `w_${width},h_${width},c_limit,q_${quality},f_auto/${watermarkLayer}`
+        : `w_${width},h_${width},c_limit,q_${quality},f_auto`;
+
+      return `${prefix}/image/upload/${transformChain}/${cleanPath}`;
     }
   }
 
@@ -140,6 +228,7 @@ export function getLowResSampleUrl(rawUrl, { width = 800, quality = 55 } = {}) {
 
 /**
  * Obtiene la URL en Máxima Calidad (HD/4K) exclusivamente para órdenes aprobadas.
+ * Elimina cualquier transformación previa o capa de marca de agua para garantizar el original limpio.
  * Si `attachment: true`, agrega `fl_attachment` para que Cloudinary fuerce la descarga
  * directa (`Content-Disposition: attachment`) sin abrir el archivo en una pestaña.
  */
@@ -149,12 +238,7 @@ export function getHighResDownloadUrl(rawUrl, { attachment = false } = {}) {
   if (rawUrl.includes('res.cloudinary.com') && rawUrl.includes('/image/upload/')) {
     const [prefix, rest] = rawUrl.split('/image/upload/');
     if (rest) {
-      const segments = rest.split('/');
-      const firstSeg = segments[0] || '';
-      const looksLikeTransform =
-        firstSeg.includes(',') ||
-        /^(w_|h_|c_|q_|f_|g_|ar_|e_|fl_|bo_|r_|o_|a_|b_)/.test(firstSeg);
-      const cleanPath = looksLikeTransform ? segments.slice(1).join('/') : rest;
+      const cleanPath = stripCloudinaryTransforms(rest);
       const flags = attachment ? 'fl_attachment,q_auto:best' : 'q_auto:best';
       return `${prefix}/image/upload/${flags}/${cleanPath}`;
     }
@@ -163,12 +247,7 @@ export function getHighResDownloadUrl(rawUrl, { attachment = false } = {}) {
   if (rawUrl.includes('res.cloudinary.com') && rawUrl.includes('/video/upload/')) {
     const [prefix, rest] = rawUrl.split('/video/upload/');
     if (rest) {
-      const segments = rest.split('/');
-      const firstSeg = segments[0] || '';
-      const looksLikeTransform =
-        firstSeg.includes(',') ||
-        /^(w_|h_|c_|q_|f_|g_|ar_|e_|fl_|bo_|r_|o_|a_|b_|so_)/.test(firstSeg);
-      const cleanPath = looksLikeTransform ? segments.slice(1).join('/') : rest;
+      const cleanPath = stripCloudinaryTransforms(rest);
       return attachment
         ? `${prefix}/video/upload/fl_attachment/${cleanPath}`
         : `${prefix}/video/upload/${cleanPath}`;

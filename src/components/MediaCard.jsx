@@ -14,7 +14,7 @@ const blockDrag = (e) => e.preventDefault();
 
 const CARD_MAX_DIM = 520; // Muestra en baja resolución para las tarjetas del catálogo
 
-export default function MediaCard({ media, onView, onDelete }) {
+export default function MediaCard({ media, onView, onDelete, albumLogoUrl = '', albumLogoPublicId = '' }) {
   const { addItem, removeItem, items } = useCart();
   const [isPortrait, setIsPortrait]    = useState(false);
   const [loaded, setLoaded]            = useState(false);
@@ -23,6 +23,8 @@ export default function MediaCard({ media, onView, onDelete }) {
   const inCart    = items.some(i => i.id === media.id);
   const isVideo   = media.type === 'video';
   const itemPrice = Number(media.price) || (isVideo ? 3000 : 2000);
+  const resolvedLogoUrl = media.eventLogoUrl || albumLogoUrl || '';
+  const resolvedLogoPublicId = media.eventLogoPublicId || albumLogoPublicId || '';
 
   const handleCart = (e) => {
     e.stopPropagation();
@@ -36,8 +38,10 @@ export default function MediaCard({ media, onView, onDelete }) {
     setLoaded(false);
 
     const lowResSrc = getLowResSampleUrl(media.thumb || media.url, {
-      width:   CARD_MAX_DIM,
-      quality: 55,
+      width:             CARD_MAX_DIM,
+      quality:           55,
+      eventLogoPublicId: resolvedLogoPublicId,
+      eventLogoUrl:      resolvedLogoUrl,
     });
 
     if (!lowResSrc) return;
@@ -82,7 +86,7 @@ export default function MediaCard({ media, onView, onDelete }) {
     return () => {
       cancelled = true;
     };
-  }, [media.id, media.thumb, media.url]);
+  }, [media.id, media.thumb, media.url, resolvedLogoPublicId, resolvedLogoUrl]);
 
   return (
     <div

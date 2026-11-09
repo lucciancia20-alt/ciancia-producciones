@@ -290,6 +290,11 @@ export default function AdminDashboard() {
                         {order.items?.length} ítems •
                         <span className="text-neon-green font-bold ml-1">{formatPrice(order.total)}</span> •
                         <span className="ml-1 capitalize">{order.paymentMethod === 'transfer' ? 'Transferencia bancaria' : 'Mercado Pago'}</span>
+                        {order.couponCode && (
+                          <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-neon-green/15 text-neon-green border border-neon-green/30">
+                            🏷️ Cupón: {order.couponCode} {order.couponDiscount ? `(-${formatPrice(order.couponDiscount)})` : ''}
+                          </span>
+                        )}
                         {(order.voucherUrl || order.voucherBase64) ? (
                           <span className="ml-2 text-xs text-cyan-400 font-medium">· 📎 Comprobante adjunto</span>
                         ) : (
@@ -367,7 +372,14 @@ export default function AdminDashboard() {
                 <tbody>
                   {approvedOrders.slice(0, 15).map(order => (
                     <tr key={order.id} className="border-b border-dark-700 hover:bg-dark-600/50 transition-colors">
-                      <td className="p-4 text-white font-medium">{order.cliente?.nombre || '-'}</td>
+                      <td className="p-4 text-white font-medium">
+                        <div>{order.cliente?.nombre || '-'}</div>
+                        {order.couponCode && (
+                          <span className="inline-block mt-0.5 px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-neon-green/15 text-neon-green border border-neon-green/30">
+                            🏷️ {order.couponCode}
+                          </span>
+                        )}
+                      </td>
                       <td className="p-4 text-gray-400 hidden sm:table-cell">{order.cliente?.email}</td>
                       <td className="p-4 text-gray-400 hidden md:table-cell">{order.items?.length}</td>
                       <td className="p-4 text-neon-green font-bold text-right">{formatPrice(order.total)}</td>

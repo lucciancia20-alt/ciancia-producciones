@@ -572,6 +572,8 @@ export default function AlbumDetail() {
                 media={item}
                 onView={setViewingMedia}
                 onDelete={user ? setConfirmDeleteMedia : undefined}
+                albumLogoUrl={album?.eventLogoUrl || ''}
+                albumLogoPublicId={album?.eventLogoPublicId || ''}
               />
             ))}
           </div>
@@ -580,7 +582,12 @@ export default function AlbumDetail() {
 
       {/* Magnifier viewer */}
       {viewingMedia && (
-        <MagnifierViewer media={viewingMedia} onClose={() => setViewingMedia(null)} />
+        <MagnifierViewer
+          media={viewingMedia}
+          onClose={() => setViewingMedia(null)}
+          albumLogoUrl={album?.eventLogoUrl || ''}
+          albumLogoPublicId={album?.eventLogoPublicId || ''}
+        />
       )}
 
       {/* Barra flotante inferior de Carrito y Descuento por Pack (Sticky Bottom Bar) */}

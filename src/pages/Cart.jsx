@@ -60,8 +60,8 @@ export default function Cart() {
             <div className="space-y-4">
               {/* Coupon */}
               <div className="card-dark p-4 space-y-3">
-                <h3 className="font-bold text-white flex items-center gap-2">
-                  <Tag className="w-4 h-4 text-neon-green" /> Cupón de descuento
+                <h3 className="font-bold text-white flex items-center gap-2 text-sm">
+                  <Tag className="w-4 h-4 text-neon-green" /> ¿Tenés un código de descuento?
                 </h3>
                 <div className="flex gap-2">
                   <input
@@ -94,7 +94,7 @@ export default function Cart() {
                     </button>
                   </div>
                 )}
-                <p className="text-gray-500 text-xs">Probá: CIANCIA10, DEPORTE20, PROMO2024</p>
+                <p className="text-gray-500 text-xs">Ej: TEAM-BIKE-15, RUNNING20, CIANCIA10</p>
               </div>
 
               {/* Price summary */}

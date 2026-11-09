@@ -19,9 +19,11 @@ export const PACK_RULES = [
 ];
 
 export const COUPONS = {
-  'CIANCIA10': { discount: 0.10, label: '10% de descuento' },
-  'DEPORTE20': { discount: 0.20, label: '20% deportistas' },
-  'PROMO2024': { discount: 0.15, label: '15% promocional' },
+  'CIANCIA10':    { discount: 0.10, label: '10% de descuento' },
+  'DEPORTE20':    { discount: 0.20, label: '20% deportistas' },
+  'PROMO2024':    { discount: 0.15, label: '15% promocional' },
+  'TEAM-BIKE-15': { discount: 0.15, label: '15% Team Bike' },
+  'RUNNING20':    { discount: 0.20, label: '20% Running' },
 };
 
 export function CartProvider({ children }) {

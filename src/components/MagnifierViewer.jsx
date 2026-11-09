@@ -265,7 +265,7 @@ function LowResProtectionBadge() {
 }
 
 // ─── Visor de fotos en <canvas> con lupa 2x y escudo anticaptura ──────────────
-function PhotoMagnifier({ media, onClose }) {
+function PhotoMagnifier({ media, onClose, albumLogoUrl = '', albumLogoPublicId = '' }) {
   const canvasRef = useRef(null);
   const imgObjRef = useRef(null);
   const animRef   = useRef(null);
@@ -278,6 +278,8 @@ function PhotoMagnifier({ media, onClose }) {
   const { addItem, removeItem, items } = useCart();
   const inCart    = items.some(i => i.id === media.id);
   const itemPrice = Number(media.price) || (media.type === 'video' ? 3000 : 2000);
+  const resolvedLogoUrl = media.eventLogoUrl || albumLogoUrl || '';
+  const resolvedLogoPublicId = media.eventLogoPublicId || albumLogoPublicId || '';
 
   // Carga en memoria (sin etiqueta <img> en el DOM) usando siempre URL de muestra comprimida (w_850, q_55)
   useEffect(() => {
@@ -286,8 +288,10 @@ function PhotoMagnifier({ media, onClose }) {
     imgObjRef.current = null;
 
     const sampleSrc = getLowResSampleUrl(media.thumb || media.url, {
-      width:   MAX_SAMPLE_DIM,
-      quality: 55,
+      width:             MAX_SAMPLE_DIM,
+      quality:           55,
+      eventLogoPublicId: resolvedLogoPublicId,
+      eventLogoUrl:      resolvedLogoUrl,
     });
 
     const loadImg = (useCors) => {
@@ -322,7 +326,7 @@ function PhotoMagnifier({ media, onClose }) {
     return () => {
       cancelled = true;
     };
-  }, [media.id, media.thumb, media.url]);
+  }, [media.id, media.thumb, media.url, resolvedLogoPublicId, resolvedLogoUrl]);
 
   // ── Loop de dibujo en <canvas> ────────────────────────────────────────────
   const draw = useCallback(() => {
@@ -700,7 +704,7 @@ function VideoViewer({ media, onClose }) {
 }
 
 // ─── Componente principal exportado ──────────────────────────────────────────
-export default function MagnifierViewer({ media, onClose }) {
+export default function MagnifierViewer({ media, onClose, albumLogoUrl = '', albumLogoPublicId = '' }) {
   useEffect(() => {
     if (!media) return;
     const prevOverflow = document.body.style.overflow;
@@ -716,5 +720,5 @@ export default function MagnifierViewer({ media, onClose }) {
   if (!media) return null;
   return media.type === 'video'
     ? <VideoViewer   media={media} onClose={onClose} />
-    : <PhotoMagnifier media={media} onClose={onClose} />;
+    : <PhotoMagnifier media={media} onClose={onClose} albumLogoUrl={albumLogoUrl} albumLogoPublicId={albumLogoPublicId} />;
 }
