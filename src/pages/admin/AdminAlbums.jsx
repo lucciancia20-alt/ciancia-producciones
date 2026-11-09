@@ -86,9 +86,12 @@ export default function AdminAlbums() {
   const [confirmDeleteAlbum, setConfirmDeleteAlbum] = useState(null);
   const [deletingMediaId, setDeletingMediaId] = useState(null);
   const [confirmDeleteMedia, setConfirmDeleteMedia] = useState(null);
+  const [enableFaceDetection, setEnableFaceDetection] = useState(true);
   const dropRef = useRef(null);
   const uploadFilesRef = useRef([]);
+  const enableFaceDetectionRef = useRef(true);
   useEffect(() => { uploadFilesRef.current = uploadFiles; }, [uploadFiles]);
+  useEffect(() => { enableFaceDetectionRef.current = enableFaceDetection; }, [enableFaceDetection]);
 
   // Espera brevemente si la foto actual está terminando su análisis IA (máx. 15s) y nunca bloquea la subida
   const waitForAI = async (id, timeoutMs = 15000) => {
@@ -452,10 +455,13 @@ export default function AdminAlbums() {
         helmetColors,
         bikeColors,
         jerseyColors,
+        hasVisibleFace,
+        faceSkipped,
         faceDescriptors,
         cancelled,
       } = await analyzeImageFile(it.file, {
         shouldCancel: () => !uploadFilesRef.current.some(f => f.id === it.id),
+        enableFaceDetection: enableFaceDetectionRef.current,
       });
       if (cancelled) return;
       setUploadFiles(prev => prev.map(f => {
@@ -464,7 +470,9 @@ export default function AdminAlbums() {
           ...f,
           aiStatus: 'done',
           aiDorsals: dorsals,
-          faceDescriptors: faceDescriptors?.length ? faceDescriptors : f.faceDescriptors,
+          hasVisibleFace: typeof hasVisibleFace === 'boolean' ? hasVisibleFace : true,
+          faceSkipped: Boolean(faceSkipped),
+          faceDescriptors: faceSkipped ? [] : (faceDescriptors?.length ? faceDescriptors : f.faceDescriptors),
           // Sugerencia editable: solo si el admin no escribió nada a mano
           dorsals: !f.dorsalsTouched && !f.dorsals.trim() ? dorsals.join(', ') : f.dorsals,
           helmetColors: f.colorsTouched ? f.helmetColors : normalizeColorList(helmetColors),
@@ -490,6 +498,8 @@ export default function AdminAlbums() {
       helmetColors:    [],
       bikeColors:      [],
       jerseyColors:    [],
+      hasVisibleFace:  true,
+      faceSkipped:     false,
       status:          'idle',
       progress:        0,
       error:           null,
@@ -622,6 +632,7 @@ export default function AdminAlbums() {
           helmetColors,
           bikeColors,
           jerseyColors,
+          hasVisibleFace: item.hasVisibleFace ?? true,
           // Array de objetos planos { vector: number[] } — Firestore no admite number[][]
           faceDescriptors: (item.faceDescriptors || []).map(d =>
             Array.isArray(d) ? { vector: Array.from(d) } : { vector: Array.from(d.vector) }
@@ -820,13 +831,33 @@ export default function AdminAlbums() {
             </div>
           </div>
 
-          {/* Selector de álbum */}
-          <div className="mb-4">
-            <label className="text-sm text-gray-400 mb-1 block">Álbum destino</label>
-            <select value={uploadAlbumId} onChange={e => setUploadAlbumId(e.target.value)} className="input-dark max-w-md" disabled={uploading}>
-              <option value="">Seleccioná un álbum...</option>
-              {albums.map(a => <option key={a.id} value={a.id}>{a.title}</option>)}
-            </select>
+          {/* Selector de álbum + Toggle rápido de detección de rostros */}
+          <div className="mb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+            <div className="flex-1 max-w-md">
+              <label className="text-sm text-gray-400 mb-1 block">Álbum destino</label>
+              <select value={uploadAlbumId} onChange={e => setUploadAlbumId(e.target.value)} className="input-dark w-full" disabled={uploading}>
+                <option value="">Seleccioná un álbum...</option>
+                {albums.map(a => <option key={a.id} value={a.id}>{a.title}</option>)}
+              </select>
+            </div>
+
+            <label
+              className={`inline-flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border text-xs font-semibold cursor-pointer select-none transition-all ${
+                enableFaceDetection
+                  ? 'bg-neon-green/10 border-neon-green/40 text-white'
+                  : 'bg-dark-800 border-dark-500 text-gray-400'
+              }`}
+              title="Si la foto tiene casco y lentes o rostro cubierto, la IA omite el reconocimiento facial automáticamente. También podés destildarlo para álbumes 100% de ciclismo."
+            >
+              <input
+                type="checkbox"
+                checked={enableFaceDetection}
+                onChange={e => setEnableFaceDetection(e.target.checked)}
+                className="w-4 h-4 accent-[#39FF14] rounded cursor-pointer"
+              />
+              <ScanFace className={`w-4 h-4 ${enableFaceDetection ? 'text-neon-green' : 'text-gray-500'}`} />
+              <span>Detectar rostros (solo caras visibles)</span>
+            </label>
           </div>
 
           {/* Drop zone */}
@@ -966,8 +997,14 @@ export default function AdminAlbums() {
                             <Bot className="w-4 h-4 flex-shrink-0" />
                             <span className="font-bold">{item.aiDorsals.length} dorsal{item.aiDorsals.length !== 1 ? 'es' : ''}</span>
                             <span className="opacity-40">·</span>
-                            <ScanFace className="w-4 h-4 flex-shrink-0" />
-                            <span className="font-semibold">{item.faceDescriptors.length} rostro{item.faceDescriptors.length !== 1 ? 's' : ''}</span>
+                            {item.faceSkipped || item.hasVisibleFace === false ? (
+                              <span className="font-semibold text-cyan-300">🚴 Rostro cubierto (Selfie omitido)</span>
+                            ) : (
+                              <>
+                                <ScanFace className="w-4 h-4 flex-shrink-0" />
+                                <span className="font-semibold">{item.faceDescriptors.length} rostro{item.faceDescriptors.length !== 1 ? 's' : ''}</span>
+                              </>
+                            )}
                             <span className="opacity-40">·</span>
                             <Palette className="w-4 h-4 flex-shrink-0" />
                             <span className="font-semibold">{totalColorsCount} tag{totalColorsCount !== 1 ? 's' : ''} de color</span>

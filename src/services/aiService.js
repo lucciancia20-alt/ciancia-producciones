@@ -149,14 +149,16 @@ const PROMPT_VISUAL_ATTRIBUTES = `Analiza esta fotografía deportiva (ciclismo, 
   "bibs": ["104", "256"],
   "helmetColors": ["blanco", "negro"],
   "bikeColors": ["rojo", "negro"],
-  "jerseyColors": ["azul", "amarillo"]
+  "jerseyColors": ["azul", "amarillo"],
+  "hasVisibleFace": false
 }
 Reglas estrictas:
 1. "bibs": array de strings con los números de dorsal, pechera o placa de bicicleta visibles. Si no hay números visibles, devuelve [].
 2. "helmetColors": colores dominantes de los cascos de los deportistas visibles. Si no usan casco, devuelve [].
 3. "bikeColors": colores dominantes del cuadro de las bicicletas visibles. Si no hay bicicletas, devuelve [].
 4. "jerseyColors": colores dominantes de las remeras, camisetas o maillots de los deportistas visibles. Si no hay deportistas, devuelve [].
-5. Usa EXCLUSIVAMENTE colores de esta paleta estándar en español: "blanco", "negro", "gris", "rojo", "azul", "celeste", "verde", "amarillo", "naranja", "rosa", "violeta", "fluor".`;
+5. "hasVisibleFace": booleano (true o false). Debe ser false si las personas en la foto llevan casco y gafas/lentes que cubren los rasgos faciales, casco integral, están agachadas sobre el manubrio ocultando la cara, de espaldas o demasiado lejos para distinguir un rostro. Solo debe ser true si hay al menos un rostro descubierto y claramente identificable para reconocimiento facial.
+6. Usa EXCLUSIVAMENTE colores de esta paleta estándar en español: "blanco", "negro", "gris", "rojo", "azul", "celeste", "verde", "amarillo", "naranja", "rosa", "violeta", "fluor".`;
 
 // Modelos de visión para Groq y Gemini
 const GROQ_VISION_MODELS = [
@@ -226,11 +228,11 @@ function cleanBibsList(rawBibs) {
 }
 
 /**
- * Extrae el JSON estructurado `{ bibs, dorsals, helmetColors, bikeColors, jerseyColors }`
+ * Extrae el JSON estructurado `{ bibs, dorsals, helmetColors, bikeColors, jerseyColors, hasVisibleFace }`
  * desde la respuesta de texto de Groq Vision o Gemini Vision.
  */
 export function parseVisualAttributesResponse(rawText) {
-  const empty = { bibs: [], dorsals: [], helmetColors: [], bikeColors: [], jerseyColors: [] };
+  const empty = { bibs: [], dorsals: [], helmetColors: [], bikeColors: [], jerseyColors: [], hasVisibleFace: true };
   const cleanedText = String(rawText || '')
     .replace(/```(?:json)?/gi, '')
     .trim();
@@ -265,7 +267,7 @@ export function parseVisualAttributesResponse(rawText) {
 
   if (Array.isArray(parsed)) {
     const bibs = cleanBibsList(parsed);
-    return { bibs, dorsals: bibs, helmetColors: [], bikeColors: [], jerseyColors: [] };
+    return { bibs, dorsals: bibs, helmetColors: [], bikeColors: [], jerseyColors: [], hasVisibleFace: true };
   }
 
   if (typeof parsed === 'object') {
@@ -274,12 +276,23 @@ export function parseVisualAttributesResponse(rawText) {
     const helmetColors = normalizeColorList(parsed.helmetColors || parsed.casco || parsed.cascos || []);
     const bikeColors = normalizeColorList(parsed.bikeColors || parsed.bici || parsed.bicicleta || parsed.bicicletas || []);
     const jerseyColors = normalizeColorList(parsed.jerseyColors || parsed.remera || parsed.maillot || parsed.ropa || []);
+
+    let hasVisibleFace = true;
+    if (typeof parsed.hasVisibleFace === 'boolean') {
+      hasVisibleFace = parsed.hasVisibleFace;
+    } else if (typeof parsed.hasVisibleFace === 'string') {
+      hasVisibleFace = parsed.hasVisibleFace.toLowerCase().trim() !== 'false';
+    } else if (helmetColors.length > 0 && bikeColors.length > 0) {
+      hasVisibleFace = false;
+    }
+
     return {
       bibs,
       dorsals: bibs,
       helmetColors,
       bikeColors,
       jerseyColors,
+      hasVisibleFace,
     };
   }
 
@@ -418,7 +431,7 @@ async function callGeminiOnce(apiKey, base64, mimeType) {
  * @returns {Promise<{ bibs: string[], dorsals: string[], helmetColors: string[], bikeColors: string[], jerseyColors: string[] }>}
  */
 export async function detectVisualAttributesFromFile(imageFile) {
-  const emptyResult = { bibs: [], dorsals: [], helmetColors: [], bikeColors: [], jerseyColors: [] };
+  const emptyResult = { bibs: [], dorsals: [], helmetColors: [], bikeColors: [], jerseyColors: [], hasVisibleFace: true };
   try {
     const groqKeys = getGroqApiKeys();
     const geminiKeys = getGeminiApiKeys();
@@ -462,7 +475,7 @@ export async function detectVisualAttributesFromFile(imageFile) {
 
         const { attributes, provider } = res;
         console.log(
-          `[aiService] ${provider} [${current.label}] -> dorsales: [${attributes.bibs.join(', ')}] | casco: [${attributes.helmetColors.join(', ')}] | bici: [${attributes.bikeColors.join(', ')}] | ropa: [${attributes.jerseyColors.join(', ')}]`
+          `[aiService] ${provider} [${current.label}] -> dorsales: [${attributes.bibs.join(', ')}] | casco: [${attributes.helmetColors.join(', ')}] | bici: [${attributes.bikeColors.join(', ')}] | ropa: [${attributes.jerseyColors.join(', ')}] | hasVisibleFace: ${attributes.hasVisibleFace}`
         );
         return attributes;
       } catch (err) {
@@ -689,14 +702,14 @@ function settleWithin(promise, ms, fallback, label) {
   return Promise.race([Promise.resolve(promise).catch(() => fallback), timeout]).finally(() => clearTimeout(timer));
 }
 
-export function analyzeImageFile(file, { shouldCancel } = {}) {
-  const emptyAttrs = { bibs: [], dorsals: [], helmetColors: [], bikeColors: [], jerseyColors: [] };
+export function analyzeImageFile(file, { shouldCancel, enableFaceDetection = true } = {}) {
+  const emptyAttrs = { bibs: [], dorsals: [], helmetColors: [], bikeColors: [], jerseyColors: [], hasVisibleFace: true };
   const run = async () => {
     try {
       if (typeof shouldCancel === 'function' && shouldCancel()) {
-        return { ...emptyAttrs, faceDescriptors: [], cancelled: true };
+        return { ...emptyAttrs, faceDescriptors: [], faceSkipped: true, cancelled: true };
       }
-      // Tope máximo de seguridad: 28s (cubre pausa 3s + intento inicial + backoff 4s + 1 reintento)
+      // 1) Ejecuta primero la extracción de dorsales, colores y visibilidad de rostro (hasVisibleFace)
       const attrs = await settleWithin(
         detectVisualAttributesFromFile(file),
         28000,
@@ -707,10 +720,41 @@ export function analyzeImageFile(file, { shouldCancel } = {}) {
       const helmetColors = Array.isArray(attrs?.helmetColors) ? attrs.helmetColors : [];
       const bikeColors = Array.isArray(attrs?.bikeColors) ? attrs.bikeColors : [];
       const jerseyColors = Array.isArray(attrs?.jerseyColors) ? attrs.jerseyColors : [];
+      const hasVisibleFace = typeof attrs?.hasVisibleFace === 'boolean' ? attrs.hasVisibleFace : true;
 
       if (typeof shouldCancel === 'function' && shouldCancel()) {
-        return { bibs: dorsals, dorsals, helmetColors, bikeColors, jerseyColors, faceDescriptors: [], cancelled: true };
+        return {
+          bibs: dorsals,
+          dorsals,
+          helmetColors,
+          bikeColors,
+          jerseyColors,
+          hasVisibleFace,
+          faceDescriptors: [],
+          faceSkipped: true,
+          cancelled: true,
+        };
       }
+
+      // 2) Si el admin desactivó el toggle de reconocimiento facial o si la IA detectó que el rostro está cubierto (hasVisibleFace === false),
+      //    omitimos por completo la ejecución de face-api para ahorrar CPU/GPU y acelerar la subida.
+      const shouldSkipFace = !enableFaceDetection || hasVisibleFace === false;
+      if (shouldSkipFace) {
+        console.log(
+          `[aiService] Reconocimiento facial omitido para "${file?.name || 'imagen'}" (${!enableFaceDetection ? 'desactivado por admin' : 'hasVisibleFace=false: casco/lentes'})`
+        );
+        return {
+          bibs: dorsals,
+          dorsals,
+          helmetColors,
+          bikeColors,
+          jerseyColors,
+          hasVisibleFace: false,
+          faceSkipped: true,
+          faceDescriptors: [],
+        };
+      }
+
       const faceDescriptors = await settleWithin(extractFaceDescriptors(file, { forAdmin: true }), FACE_TIMEOUT_MS, [], 'Detección de rostros');
       return {
         bibs: dorsals,
@@ -718,10 +762,12 @@ export function analyzeImageFile(file, { shouldCancel } = {}) {
         helmetColors,
         bikeColors,
         jerseyColors,
+        hasVisibleFace: true,
+        faceSkipped: false,
         faceDescriptors: Array.isArray(faceDescriptors) ? faceDescriptors : [],
       };
     } catch {
-      return { ...emptyAttrs, faceDescriptors: [] };
+      return { ...emptyAttrs, faceDescriptors: [], faceSkipped: false };
     }
   };
 
