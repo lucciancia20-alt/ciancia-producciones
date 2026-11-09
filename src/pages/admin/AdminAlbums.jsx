@@ -8,7 +8,7 @@ import { Link } from 'react-router-dom';
 import {
   ArrowLeft, Plus, Upload, X, Check, Loader2, Camera, Video,
   Eye, ChevronDown, ChevronUp, AlertCircle, CheckCircle2,
-  Bot, ScanFace, Save, Trash2, Tag, RefreshCw, Pencil, Palette,
+  Bot, ScanFace, Save, Trash2, Tag, RefreshCw, Pencil, Palette, Star, Sparkles,
 } from 'lucide-react';
 import { uploadToCloudinary } from '../../services/cloudinary';
 import { VISUAL_COLOR_PALETTE, normalizeColorList } from '../../constants/visualColors';
@@ -65,6 +65,7 @@ export default function AdminAlbums() {
   });
   const [uploadFiles, setUploadFiles]   = useState([]);   // { id, file, dorsals, helmetColors, bikeColors, jerseyColors, status, progress, error, result }
   const [uploadAlbumId, setUploadAlbumId] = useState('');
+  const [selectedQueueCoverId, setSelectedQueueCoverId] = useState(null); // ID de foto en cola elegida para ser portada
   const [uploading, setUploading]       = useState(false);
   const [uploadSummary, setUploadSummary] = useState(null); // { ok, errors }
   const [expandedAlbum, setExpandedAlbum] = useState(null);
@@ -74,6 +75,7 @@ export default function AdminAlbums() {
   const [mediaColorEdits, setMediaColorEdits]   = useState({}); // { [mediaId]: { helmetColors, bikeColors, jerseyColors } }
   const [openColorEditorId, setOpenColorEditorId] = useState(null); // mediaId con panel de colores desplegado
   const [openQueueColorId, setOpenQueueColorId]   = useState(null); // uploadItem.id con panel de colores desplegado
+  const [settingCoverMediaId, setSettingCoverMediaId] = useState(null); // mediaId actualizando portada
   const [albumPriceEdits, setAlbumPriceEdits]   = useState({}); // { [albumId]: { pricePhoto, priceVideo } }
   const [savingMediaId, setSavingMediaId]       = useState(null);
   const [savingAlbumPriceId, setSavingAlbumPriceId] = useState(null);
@@ -97,6 +99,31 @@ export default function AdminAlbums() {
       await new Promise(r => setTimeout(r, 300));
     }
     return uploadFilesRef.current.find(f => f.id === id);
+  };
+
+  // ─── Asignar una foto como portada del álbum en Firestore ───────────────────
+  const handleSetAlbumCover = async (albumId, photoUrl, mediaId = null) => {
+    if (!albumId || !photoUrl) return;
+    if (mediaId) setSettingCoverMediaId(mediaId);
+    try {
+      const updates = { coverUrl: photoUrl, cover: photoUrl };
+      await updateDoc(doc(db, 'albums', albumId), updates);
+      setAlbums(prev => prev.map(a => a.id === albumId ? { ...a, ...updates } : a));
+    } catch (e) {
+      alert('Error al actualizar la portada del álbum: ' + e.message);
+    } finally {
+      if (mediaId) setSettingCoverMediaId(null);
+    }
+  };
+
+  // Permite elegir una foto en la cola de subida como portada (si ya se subió, impacta en Firestore al instante)
+  const handleSelectQueueCover = async (item) => {
+    if (!item || item.file.type.startsWith('video/')) return;
+    setSelectedQueueCoverId(prev => (prev === item.id ? null : item.id));
+    if (item.status === 'done' && item.result && uploadAlbumId) {
+      const photoUrl = item.result.url || item.result.thumb;
+      await handleSetAlbumCover(uploadAlbumId, photoUrl);
+    }
   };
 
   // ─── Edición manual de dorsales, atributos visuales y precios en fotos ya subidas ──
@@ -396,8 +423,11 @@ export default function AdminAlbums() {
     try {
       const pricePhoto = newAlbum.pricePhoto ? Number(newAlbum.pricePhoto) : 2000;
       const priceVideo = newAlbum.priceVideo ? Number(newAlbum.priceVideo) : 3000;
+      const cleanCover = (newAlbum.coverUrl || '').trim();
       const albumData = {
         ...newAlbum,
+        coverUrl: cleanCover,
+        cover: cleanCover,
         pricePhoto,
         priceVideo,
         date: Timestamp.now(),
@@ -517,12 +547,14 @@ export default function AdminAlbums() {
       };
     }));
 
-  const removeFile = (id) =>
+  const removeFile = (id) => {
+    if (selectedQueueCoverId === id) setSelectedQueueCoverId(null);
     setUploadFiles(prev => {
       const target = prev.find(f => f.id === id);
       if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
       return prev.filter(f => f.id !== id);
     });
+  };
 
   const patchFile = (id, patch) =>
     setUploadFiles(prev => prev.map(f => f.id === id ? { ...f, ...patch } : f));
@@ -616,16 +648,33 @@ export default function AdminAlbums() {
       await Promise.all(batch.map(processOne));
     }
 
-    // 3) Actualizar contador del álbum en Firestore y reflejarlo de inmediato en el estado
+    // 3) Actualizar contador y portada del álbum en Firestore y reflejarlo de inmediato en el estado
     if (ok > 0) {
       const albumUpdates = {
         totalMedia: (album?.totalMedia || 0) + ok,
       };
 
-      // Si el álbum aún no tenía foto de portada asignada, tomamos la primera foto subida
-      const firstDone = uploadFilesRef.current.find(f => f.status === 'done')?.result?.thumb;
-      if (!album?.coverUrl && firstDone) {
-        albumUpdates.coverUrl = firstDone;
+      // Si el admin marcó una foto específica en la cola como portada, o si el álbum no tiene portada definida aún (`coverUrl` / `cover` vacío)
+      const explicitQueueCover = selectedQueueCoverId
+        ? uploadFilesRef.current.find(f => f.id === selectedQueueCoverId && f.status === 'done' && !f.file.type.startsWith('video/'))
+        : null;
+      const firstDonePhoto = uploadFilesRef.current.find(f => f.status === 'done' && !f.file.type.startsWith('video/'))
+        || uploadFilesRef.current.find(f => f.status === 'done');
+
+      const hasExistingCover = Boolean((album?.coverUrl && album.coverUrl.trim()) || (album?.cover && album.cover.trim()));
+
+      if (explicitQueueCover?.result) {
+        const chosenUrl = explicitQueueCover.result.url || explicitQueueCover.result.thumb;
+        if (chosenUrl) {
+          albumUpdates.coverUrl = chosenUrl;
+          albumUpdates.cover    = chosenUrl;
+        }
+      } else if (!hasExistingCover && firstDonePhoto?.result) {
+        const autoCoverUrl = firstDonePhoto.result.url || firstDonePhoto.result.thumb;
+        if (autoCoverUrl) {
+          albumUpdates.coverUrl = autoCoverUrl;
+          albumUpdates.cover    = autoCoverUrl;
+        }
       }
 
       await updateDoc(doc(db, 'albums', uploadAlbumId), albumUpdates);
@@ -635,6 +684,7 @@ export default function AdminAlbums() {
 
     setUploadSummary({ ok, errors });
     setUploading(false);
+    setSelectedQueueCoverId(null);
 
     // Limpiar solo los exitosos; dejar los errores para reintentar sin recargar ni salir de la vista
     setUploadFiles(prev => prev.filter(f => f.status !== 'done'));
@@ -653,6 +703,7 @@ export default function AdminAlbums() {
   const clearAll   = () => {
     uploadFiles.forEach(f => { if (f.previewUrl) URL.revokeObjectURL(f.previewUrl); });
     setUploadFiles([]);
+    setSelectedQueueCoverId(null);
     setUploadSummary(null);
   };
   const retryErrors = () =>
@@ -708,8 +759,13 @@ export default function AdminAlbums() {
                 <input value={newAlbum.location} onChange={e => setNewAlbum(p => ({ ...p, location: e.target.value }))} placeholder="Córdoba, Argentina" className="input-dark" />
               </div>
               <div>
-                <label className="text-sm text-gray-400 mb-1 block">URL de portada</label>
-                <input value={newAlbum.coverUrl} onChange={e => setNewAlbum(p => ({ ...p, coverUrl: e.target.value }))} placeholder="https://..." className="input-dark" />
+                <label className="text-sm text-gray-400 mb-1 block">Portada del álbum</label>
+                <div className="flex items-center gap-2.5 rounded-xl bg-neon-green/10 border border-neon-green/30 px-3.5 py-2.5 text-xs text-gray-200 leading-snug">
+                  <Sparkles className="w-4 h-4 text-neon-green flex-shrink-0" />
+                  <span>
+                    La portada se asignará automáticamente con la primera foto subida, o podés elegir cualquiera desde los detalles del álbum.
+                  </span>
+                </div>
               </div>
               <div>
                 <label className="text-sm text-gray-400 mb-1 block">Precio Fotos ($) — opcional</label>
@@ -795,29 +851,42 @@ export default function AdminAlbums() {
           {uploadFiles.length > 0 && (
             <div className="mt-5 space-y-3">
 
-              {uploadFiles.map(item => {
+              {uploadFiles.map((item, idx) => {
                 const isVideo = item.file.type.startsWith('video/');
                 const sizeMB  = (item.file.size / 1024 / 1024).toFixed(1);
                 const totalColorsCount = (item.helmetColors?.length || 0) + (item.bikeColors?.length || 0) + (item.jerseyColors?.length || 0);
                 const isColorPanelOpen = openQueueColorId === item.id;
+                const targetAlbum = albums.find(a => a.id === uploadAlbumId);
+                const albumHasCover = Boolean((targetAlbum?.coverUrl && targetAlbum.coverUrl.trim()) || (targetAlbum?.cover && targetAlbum.cover.trim()));
+                const firstImageIdx = uploadFiles.findIndex(f => !f.file.type.startsWith('video/'));
+                const isSelectedQueueCover = !isVideo && (
+                  selectedQueueCoverId === item.id ||
+                  (!selectedQueueCoverId && !albumHasCover && idx === firstImageIdx)
+                );
 
                 return (
                   <div
                     key={item.id}
-                    className={`rounded-2xl border p-4 transition-colors space-y-3 ${
-                      item.status === 'done'  ? 'bg-green-900/15 border-green-500/30' :
-                      item.status === 'error' ? 'bg-red-900/15   border-red-500/30'   :
-                                                'bg-dark-700     border-dark-500'
+                    className={`rounded-2xl border p-4 transition-all space-y-3 ${
+                      isSelectedQueueCover
+                        ? 'bg-neon-green/10 border-2 border-neon-green shadow-lg shadow-neon-green/10'
+                        : item.status === 'done'
+                          ? 'bg-green-900/15 border-green-500/30'
+                          : item.status === 'error'
+                            ? 'bg-red-900/15 border-red-500/30'
+                            : 'bg-dark-700 border-dark-500'
                     }`}
                   >
-                    {/* Fila 1: Miniatura/Ícono, Nombre del archivo, tamaño y botón eliminar */}
-                    <div className="flex items-center justify-between gap-3">
+                    {/* Fila 1: Miniatura/Ícono, Nombre del archivo, tamaño, botón portada y botón eliminar */}
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
                       <div className="flex items-center gap-3 min-w-0 flex-1">
                         {item.previewUrl ? (
                           <img
                             src={item.previewUrl}
                             alt=""
-                            className="w-11 h-11 rounded-xl object-cover border border-dark-500 flex-shrink-0 bg-dark-800"
+                            className={`w-11 h-11 rounded-xl object-cover border flex-shrink-0 bg-dark-800 ${
+                              isSelectedQueueCover ? 'border-neon-green ring-2 ring-neon-green/40' : 'border-dark-500'
+                            }`}
                           />
                         ) : (
                           <div className="flex-shrink-0 p-2.5 bg-dark-600 rounded-xl">
@@ -828,20 +897,46 @@ export default function AdminAlbums() {
                           </div>
                         )}
                         <div className="min-w-0 flex-1">
-                          <p className="text-white text-sm font-semibold truncate leading-tight">{item.file.name}</p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-white text-sm font-semibold truncate leading-tight">{item.file.name}</p>
+                            {isSelectedQueueCover && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-black bg-neon-green text-black shadow-sm">
+                                ★ Portada actual
+                              </span>
+                            )}
+                          </div>
                           <p className="text-gray-400 text-xs mt-0.5">{sizeMB} MB · {isVideo ? 'Video' : 'Imagen'}</p>
                         </div>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => removeFile(item.id)}
-                        disabled={item.status === 'uploading'}
-                        className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-dark-600 rounded-lg transition-colors disabled:opacity-30 flex-shrink-0"
-                        title="Quitar archivo"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {!isVideo && (
+                          <button
+                            type="button"
+                            onClick={() => handleSelectQueueCover(item)}
+                            disabled={item.status === 'uploading'}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all disabled:opacity-40 ${
+                              isSelectedQueueCover
+                                ? 'bg-neon-green text-black border-neon-green shadow-sm'
+                                : 'bg-dark-800 border-dark-500 text-gray-300 hover:border-neon-green/60 hover:text-neon-green'
+                            }`}
+                            title="Definir esta foto como portada del álbum"
+                          >
+                            <Star className={`w-3.5 h-3.5 ${isSelectedQueueCover ? 'fill-current' : ''}`} />
+                            <span>{isSelectedQueueCover ? '★ Portada actual' : '⭐ Usar como portada'}</span>
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => removeFile(item.id)}
+                          disabled={item.status === 'uploading'}
+                          className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-dark-600 rounded-lg transition-colors disabled:opacity-30 flex-shrink-0"
+                          title="Quitar archivo"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
 
                     {/* Barra de progreso de subida a Cloudinary */}
@@ -1116,385 +1211,432 @@ export default function AdminAlbums() {
           <div className="text-neon-green animate-pulse">Cargando…</div>
         ) : (
           <div className="space-y-3">
-            {albums.map(album => (
-              <div key={album.id} className="card-dark border border-dark-500">
-                <div className="p-4 flex flex-wrap sm:flex-nowrap items-center gap-4">
-                  <img
-                    src={album.coverUrl || 'https://placehold.co/80x60/1a1a1a/39FF14?text=Sin+portada'}
-                    alt={album.title}
-                    className="w-16 h-12 object-cover rounded-lg flex-shrink-0"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-bold text-white truncate">{album.title}</h3>
-                    <p className="text-gray-400 text-xs">{album.category} · {album.location} · {album.totalMedia || 0} archivos</p>
-                  </div>
-                  <div className="flex items-center flex-wrap gap-2">
-                    <Link
-                      to={`/album/${album.id}`}
-                      className="p-2 text-gray-400 hover:text-neon-green transition-colors"
-                      title="Ver álbum en la tienda"
-                    >
-                      <Eye className="w-4 h-4" />
-                    </Link>
-
-                    <button
-                      type="button"
-                      onClick={() => editingAlbumId === album.id ? setEditingAlbumId(null) : startEditAlbumInfo(album)}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-gray-200 bg-dark-700 border border-dark-500 hover:text-neon-green hover:border-neon-green/50 transition-colors"
-                      title="Editar nombre y datos del álbum"
-                    >
-                      <Pencil className="w-3.5 h-3.5 text-neon-green" />
-                      <span>Editar</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => toggleAlbum(album.id)}
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-gray-200 bg-dark-700 border border-dark-500 hover:text-neon-green hover:border-neon-green/50 transition-colors"
-                    >
-                      {expandedAlbum === album.id ? (
-                        <ChevronUp className="w-3.5 h-3.5 text-neon-green" />
-                      ) : (
-                        <ChevronDown className="w-3.5 h-3.5 text-neon-green" />
-                      )}
-                      <span>Detalles</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setConfirmDeleteAlbum(album)}
-                      disabled={deletingAlbumId === album.id}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-red-400 border border-red-500/30 hover:bg-red-500/10 hover:border-red-500/60 transition-colors disabled:opacity-40"
-                      title="Eliminar álbum 🗑️"
-                    >
-                      {deletingAlbumId === album.id ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <Trash2 className="w-3.5 h-3.5" />
-                      )}
-                      <span>Eliminar 🗑️</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* ── Formulario rápido para editar nombre, ubicación y categoría del álbum ── */}
-                {editingAlbumId === album.id && (
-                  <div className="border-t border-dark-600 bg-dark-800/80 p-4 space-y-3">
-                    <p className="text-xs font-bold text-neon-green flex items-center gap-1.5">
-                      <Pencil className="w-3.5 h-3.5" /> Editar nombre y datos del álbum
-                    </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div>
-                        <label className="text-xs text-gray-400 mb-1 block">Nombre del álbum *</label>
-                        <input
-                          type="text"
-                          value={albumInfoEdits.title}
-                          onChange={e => setAlbumInfoEdits(p => ({ ...p, title: e.target.value }))}
-                          onKeyDown={e => { if (e.key === 'Enter') saveAlbumInfo(album.id); }}
-                          className="input-dark text-sm py-1.5"
-                          placeholder="Nombre del álbum"
-                          autoFocus
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs text-gray-400 mb-1 block">Ubicación</label>
-                        <input
-                          type="text"
-                          value={albumInfoEdits.location}
-                          onChange={e => setAlbumInfoEdits(p => ({ ...p, location: e.target.value }))}
-                          onKeyDown={e => { if (e.key === 'Enter') saveAlbumInfo(album.id); }}
-                          className="input-dark text-sm py-1.5"
-                          placeholder="Ej: Villa Ventana"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs text-gray-400 mb-1 block">Categoría</label>
-                        <select
-                          value={albumInfoEdits.category}
-                          onChange={e => setAlbumInfoEdits(p => ({ ...p, category: e.target.value }))}
-                          className="input-dark text-sm py-1.5"
-                        >
-                          {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                      </div>
+            {albums.map(album => {
+              const currentAlbumCover = album.coverUrl || album.cover || '';
+              return (
+                <div key={album.id} className="card-dark border border-dark-500">
+                  <div className="p-4 flex flex-wrap sm:flex-nowrap items-center gap-4">
+                    <img
+                      src={currentAlbumCover || 'https://placehold.co/80x60/1a1a1a/39FF14?text=Auto+Portada'}
+                      alt={album.title}
+                      className="w-16 h-12 object-cover rounded-lg flex-shrink-0 border border-dark-500"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-bold text-white truncate">{album.title}</h3>
+                      <p className="text-gray-400 text-xs">{album.category} · {album.location} · {album.totalMedia || 0} archivos</p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center flex-wrap gap-2">
+                      <Link
+                        to={`/album/${album.id}`}
+                        className="p-2 text-gray-400 hover:text-neon-green transition-colors"
+                        title="Ver álbum en la tienda"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </Link>
+
                       <button
                         type="button"
-                        onClick={() => saveAlbumInfo(album.id)}
-                        disabled={savingAlbumInfoId === album.id}
-                        className="btn-neon text-xs py-1.5 px-4 flex items-center gap-1.5"
+                        onClick={() => editingAlbumId === album.id ? setEditingAlbumId(null) : startEditAlbumInfo(album)}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-gray-200 bg-dark-700 border border-dark-500 hover:text-neon-green hover:border-neon-green/50 transition-colors"
+                        title="Editar nombre y datos del álbum"
                       >
-                        {savingAlbumInfoId === album.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                        Guardar cambios
+                        <Pencil className="w-3.5 h-3.5 text-neon-green" />
+                        <span>Editar</span>
                       </button>
+
                       <button
                         type="button"
-                        onClick={() => setEditingAlbumId(null)}
-                        className="btn-outline-neon text-xs py-1.5 px-3"
+                        onClick={() => toggleAlbum(album.id)}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-gray-200 bg-dark-700 border border-dark-500 hover:text-neon-green hover:border-neon-green/50 transition-colors"
                       >
-                        Cancelar
+                        {expandedAlbum === album.id ? (
+                          <ChevronUp className="w-3.5 h-3.5 text-neon-green" />
+                        ) : (
+                          <ChevronDown className="w-3.5 h-3.5 text-neon-green" />
+                        )}
+                        <span>Detalles</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteAlbum(album)}
+                        disabled={deletingAlbumId === album.id}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-red-400 border border-red-500/30 hover:bg-red-500/10 hover:border-red-500/60 transition-colors disabled:opacity-40"
+                        title="Eliminar álbum 🗑️"
+                      >
+                        {deletingAlbumId === album.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-3.5 h-3.5" />
+                        )}
+                        <span>Eliminar 🗑️</span>
                       </button>
                     </div>
                   </div>
-                )}
 
-                {expandedAlbum === album.id && (
-                  <div className="border-t border-dark-600 p-4 text-sm text-gray-400 space-y-2">
-                    <p><strong className="text-white">ID Firestore:</strong> {album.id}</p>
-                    {album.slug && <p><strong className="text-white">Slug:</strong> {album.slug}</p>}
-                    <p><strong className="text-white">Descripción:</strong> {album.description || '—'}</p>
-
-                    {/* Precios específicos de este álbum */}
-                    <div className="bg-dark-700/60 rounded-xl p-3 border border-dark-600 mt-2 space-y-2">
-                      <p className="text-white text-xs font-bold flex items-center gap-1.5">
-                        <Tag className="w-3.5 h-3.5 text-neon-green" /> Precios específicos para este álbum:
+                  {/* ── Formulario rápido para editar nombre, ubicación y categoría del álbum ── */}
+                  {editingAlbumId === album.id && (
+                    <div className="border-t border-dark-600 bg-dark-800/80 p-4 space-y-3">
+                      <p className="text-xs font-bold text-neon-green flex items-center gap-1.5">
+                        <Pencil className="w-3.5 h-3.5" /> Editar nombre y datos del álbum
                       </p>
-                      <div className="flex flex-wrap items-center gap-3 text-xs">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-gray-400">Fotos: $</span>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                          <label className="text-xs text-gray-400 mb-1 block">Nombre del álbum *</label>
                           <input
-                            type="number"
-                            value={albumPriceEdits[album.id]?.pricePhoto ?? album.pricePhoto ?? 2000}
-                            onChange={e => setAlbumPriceEdits(prev => ({
-                              ...prev,
-                              [album.id]: { ...(prev[album.id] || {}), pricePhoto: e.target.value }
-                            }))}
-                            className="input-dark text-xs py-1 px-2 w-24 font-mono"
-                            placeholder="2000"
+                            type="text"
+                            value={albumInfoEdits.title}
+                            onChange={e => setAlbumInfoEdits(p => ({ ...p, title: e.target.value }))}
+                            onKeyDown={e => { if (e.key === 'Enter') saveAlbumInfo(album.id); }}
+                            className="input-dark text-sm py-1.5"
+                            placeholder="Nombre del álbum"
+                            autoFocus
                           />
                         </div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-gray-400">Videos: $</span>
+                        <div>
+                          <label className="text-xs text-gray-400 mb-1 block">Ubicación</label>
                           <input
-                            type="number"
-                            value={albumPriceEdits[album.id]?.priceVideo ?? album.priceVideo ?? 3000}
-                            onChange={e => setAlbumPriceEdits(prev => ({
-                              ...prev,
-                              [album.id]: { ...(prev[album.id] || {}), priceVideo: e.target.value }
-                            }))}
-                            className="input-dark text-xs py-1 px-2 w-24 font-mono"
-                            placeholder="3000"
+                            type="text"
+                            value={albumInfoEdits.location}
+                            onChange={e => setAlbumInfoEdits(p => ({ ...p, location: e.target.value }))}
+                            onKeyDown={e => { if (e.key === 'Enter') saveAlbumInfo(album.id); }}
+                            className="input-dark text-sm py-1.5"
+                            placeholder="Ej: Villa Ventana"
                           />
                         </div>
+                        <div>
+                          <label className="text-xs text-gray-400 mb-1 block">Categoría</label>
+                          <select
+                            value={albumInfoEdits.category}
+                            onChange={e => setAlbumInfoEdits(p => ({ ...p, category: e.target.value }))}
+                            className="input-dark text-sm py-1.5"
+                          >
+                            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => saveAlbumPrices(album.id)}
-                          disabled={savingAlbumPriceId === album.id}
-                          className="btn-outline-neon text-xs py-1 px-3 flex items-center gap-1.5"
+                          onClick={() => saveAlbumInfo(album.id)}
+                          disabled={savingAlbumInfoId === album.id}
+                          className="btn-neon text-xs py-1.5 px-4 flex items-center gap-1.5"
                         >
-                          {savingAlbumPriceId === album.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                          Guardar precios del álbum
+                          {savingAlbumInfoId === album.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                          Guardar cambios
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingAlbumId(null)}
+                          className="btn-outline-neon text-xs py-1.5 px-3"
+                        >
+                          Cancelar
                         </button>
                       </div>
                     </div>
+                  )}
 
-                    <button
-                      onClick={() => {
-                        setUploadAlbumId(album.id);
-                        window.scrollTo({ top: 0, behavior: 'smooth' });
-                      }}
-                      className="text-neon-green hover:underline text-xs flex items-center gap-1 mt-2"
-                    >
-                      <Upload className="w-3 h-3" /> Subir archivos a este álbum
-                    </button>
+                  {expandedAlbum === album.id && (
+                    <div className="border-t border-dark-600 p-4 text-sm text-gray-400 space-y-2">
+                      <p><strong className="text-white">ID Firestore:</strong> {album.id}</p>
+                      {album.slug && <p><strong className="text-white">Slug:</strong> {album.slug}</p>}
+                      <p><strong className="text-white">Descripción:</strong> {album.description || '—'}</p>
 
-                    {/* ── Edición manual de dorsales, atributos visuales y precios ── */}
-                    <div className="pt-3 mt-3 border-t border-dark-600">
-                      <p className="text-white font-semibold mb-2 flex items-center gap-2 flex-wrap">
-                        <Bot className="w-4 h-4 text-neon-green" /> Dorsales, Atributos Visuales (Casco/Bici/Ropa) y Precios por archivo
-                        <span className="text-xs text-gray-500 font-normal">(corregí dorsales, retocá colores o ajustá precios individuales)</span>
-                      </p>
-                      {!albumMedia[album.id] ? (
-                        <p className="text-neon-green animate-pulse text-xs">Cargando archivos…</p>
-                      ) : albumMedia[album.id].length === 0 ? (
-                        <p className="text-xs text-gray-500">Este álbum todavía no tiene archivos.</p>
-                      ) : (
-                        <div className="grid grid-cols-1 gap-2.5 max-h-[520px] overflow-y-auto pr-1">
-                          {albumMedia[album.id].map(m => {
-                            const originalDorsals = (m.dorsals || m.bibs || []).join(', ');
-                            const originalPrice = m.price !== undefined && m.price !== null ? String(m.price) : (m.type === 'video' ? '3000' : '2000');
-                            const currentDorsals = mediaDorsalEdits[m.id] ?? originalDorsals;
-                            const currentPrice = mediaPriceEdits[m.id] ?? originalPrice;
+                      {/* Precios específicos de este álbum */}
+                      <div className="bg-dark-700/60 rounded-xl p-3 border border-dark-600 mt-2 space-y-2">
+                        <p className="text-white text-xs font-bold flex items-center gap-1.5">
+                          <Tag className="w-3.5 h-3.5 text-neon-green" /> Precios específicos para este álbum:
+                        </p>
+                        <div className="flex flex-wrap items-center gap-3 text-xs">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-gray-400">Fotos: $</span>
+                            <input
+                              type="number"
+                              value={albumPriceEdits[album.id]?.pricePhoto ?? album.pricePhoto ?? 2000}
+                              onChange={e => setAlbumPriceEdits(prev => ({
+                                ...prev,
+                                [album.id]: { ...(prev[album.id] || {}), pricePhoto: e.target.value }
+                              }))}
+                              className="input-dark text-xs py-1 px-2 w-24 font-mono"
+                              placeholder="2000"
+                            />
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-gray-400">Videos: $</span>
+                            <input
+                              type="number"
+                              value={albumPriceEdits[album.id]?.priceVideo ?? album.priceVideo ?? 3000}
+                              onChange={e => setAlbumPriceEdits(prev => ({
+                                ...prev,
+                                [album.id]: { ...(prev[album.id] || {}), priceVideo: e.target.value }
+                              }))}
+                              className="input-dark text-xs py-1 px-2 w-24 font-mono"
+                              placeholder="3000"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => saveAlbumPrices(album.id)}
+                            disabled={savingAlbumPriceId === album.id}
+                            className="btn-outline-neon text-xs py-1 px-3 flex items-center gap-1.5"
+                          >
+                            {savingAlbumPriceId === album.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                            Guardar precios del álbum
+                          </button>
+                        </div>
+                      </div>
 
-                            const origHelmet = normalizeColorList(m.helmetColors || []);
-                            const origBike   = normalizeColorList(m.bikeColors || []);
-                            const origJersey = normalizeColorList(m.jerseyColors || []);
+                      <button
+                        onClick={() => {
+                          setUploadAlbumId(album.id);
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        className="text-neon-green hover:underline text-xs flex items-center gap-1 mt-2"
+                      >
+                        <Upload className="w-3 h-3" /> Subir archivos a este álbum
+                      </button>
 
-                            const currentColors = mediaColorEdits[m.id] || {
-                              helmetColors: origHelmet,
-                              bikeColors:   origBike,
-                              jerseyColors: origJersey,
-                            };
+                      {/* ── Edición manual de portada, dorsales, atributos visuales y precios ── */}
+                      <div className="pt-3 mt-3 border-t border-dark-600">
+                        <p className="text-white font-semibold mb-2 flex items-center gap-2 flex-wrap">
+                          <Bot className="w-4 h-4 text-neon-green" /> Portada, Dorsales, Atributos Visuales y Precios por archivo
+                          <span className="text-xs text-gray-500 font-normal">(elegí la foto de portada con ⭐, corregí dorsales o retocá colores)</span>
+                        </p>
+                        {!albumMedia[album.id] ? (
+                          <p className="text-neon-green animate-pulse text-xs">Cargando archivos…</p>
+                        ) : albumMedia[album.id].length === 0 ? (
+                          <p className="text-xs text-gray-500">Este álbum todavía no tiene archivos.</p>
+                        ) : (
+                          <div className="grid grid-cols-1 gap-2.5 max-h-[520px] overflow-y-auto pr-1">
+                            {albumMedia[album.id].map(m => {
+                              const originalDorsals = (m.dorsals || m.bibs || []).join(', ');
+                              const originalPrice = m.price !== undefined && m.price !== null ? String(m.price) : (m.type === 'video' ? '3000' : '2000');
+                              const currentDorsals = mediaDorsalEdits[m.id] ?? originalDorsals;
+                              const currentPrice = mediaPriceEdits[m.id] ?? originalPrice;
 
-                            const colorsChanged =
-                              currentColors.helmetColors.join(',') !== origHelmet.join(',') ||
-                              currentColors.bikeColors.join(',')   !== origBike.join(',') ||
-                              currentColors.jerseyColors.join(',') !== origJersey.join(',');
+                              const origHelmet = normalizeColorList(m.helmetColors || []);
+                              const origBike   = normalizeColorList(m.bikeColors || []);
+                              const origJersey = normalizeColorList(m.jerseyColors || []);
 
-                            const dirty =
-                              currentDorsals !== originalDorsals ||
-                              String(currentPrice) !== String(originalPrice) ||
-                              colorsChanged;
+                              const currentColors = mediaColorEdits[m.id] || {
+                                helmetColors: origHelmet,
+                                bikeColors:   origBike,
+                                jerseyColors: origJersey,
+                              };
 
-                            const totalColors =
-                              currentColors.helmetColors.length +
-                              currentColors.bikeColors.length +
-                              currentColors.jerseyColors.length;
+                              const colorsChanged =
+                                currentColors.helmetColors.join(',') !== origHelmet.join(',') ||
+                                currentColors.bikeColors.join(',')   !== origBike.join(',') ||
+                                currentColors.jerseyColors.join(',') !== origJersey.join(',');
 
-                            const isColorOpen = openColorEditorId === m.id;
+                              const dirty =
+                                currentDorsals !== originalDorsals ||
+                                String(currentPrice) !== String(originalPrice) ||
+                                colorsChanged;
 
-                            return (
-                              <div key={m.id} className="bg-dark-700 rounded-xl p-2.5 border border-dark-500 space-y-2">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <img
-                                    src={m.thumb || m.url}
-                                    alt={m.fileName}
-                                    className="w-14 h-10 object-cover rounded flex-shrink-0"
-                                    draggable={false}
-                                  />
-                                  <div className="flex-1 min-w-[140px]">
-                                    <p className="text-xs text-gray-200 font-semibold truncate">{m.fileName}</p>
-                                    <div className="text-[10px] text-gray-400 flex flex-wrap items-center gap-1.5 mt-0.5">
-                                      <span className="inline-flex items-center gap-1">
-                                        {m.type === 'video' ? <Video className="w-3 h-3" /> : <Camera className="w-3 h-3" />}
-                                        {m.type === 'photo' && <><ScanFace className="w-3 h-3 ml-1" /> {m.facesCount ?? (m.faceDescriptors?.length || 0)}</>}
-                                      </span>
-                                      {totalColors > 0 && (
-                                        <span className="inline-flex items-center gap-1 text-gray-300">
-                                          ·
-                                          {[...new Set([
-                                            ...currentColors.helmetColors,
-                                            ...currentColors.bikeColors,
-                                            ...currentColors.jerseyColors,
-                                          ])].map(cid => {
-                                            const c = COLOR_MAP[cid];
-                                            if (!c) return null;
-                                            return (
-                                              <span
-                                                key={cid}
-                                                title={c.label}
-                                                className="w-2.5 h-2.5 rounded-full border inline-block"
-                                                style={{ backgroundColor: c.hex, borderColor: c.border }}
-                                              />
-                                            );
-                                          })}
-                                        </span>
-                                      )}
+                              const totalColors =
+                                currentColors.helmetColors.length +
+                                currentColors.bikeColors.length +
+                                currentColors.jerseyColors.length;
+
+                              const isColorOpen = openColorEditorId === m.id;
+                              const isCurrentCover = Boolean(
+                                currentAlbumCover &&
+                                (currentAlbumCover === m.url || currentAlbumCover === m.thumb)
+                              );
+
+                              return (
+                                <div
+                                  key={m.id}
+                                  className={`rounded-xl p-2.5 transition-all space-y-2 ${
+                                    isCurrentCover
+                                      ? 'bg-neon-green/10 border-2 border-neon-green shadow-md shadow-neon-green/10'
+                                      : 'bg-dark-700 border border-dark-500'
+                                  }`}
+                                >
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <div className="relative flex-shrink-0">
+                                      <img
+                                        src={m.thumb || m.url}
+                                        alt={m.fileName}
+                                        className={`w-14 h-10 object-cover rounded ${
+                                          isCurrentCover ? 'ring-2 ring-neon-green' : ''
+                                        }`}
+                                        draggable={false}
+                                      />
                                     </div>
-                                  </div>
+                                    <div className="flex-1 min-w-[140px]">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <p className="text-xs text-gray-200 font-semibold truncate">{m.fileName}</p>
+                                        {isCurrentCover && (
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-neon-green text-black shadow-sm">
+                                            ★ Portada actual
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="text-[10px] text-gray-400 flex flex-wrap items-center gap-1.5 mt-0.5">
+                                        <span className="inline-flex items-center gap-1">
+                                          {m.type === 'video' ? <Video className="w-3 h-3" /> : <Camera className="w-3 h-3" />}
+                                          {m.type === 'photo' && <><ScanFace className="w-3 h-3 ml-1" /> {m.facesCount ?? (m.faceDescriptors?.length || 0)}</>}
+                                        </span>
+                                        {totalColors > 0 && (
+                                          <span className="inline-flex items-center gap-1 text-gray-300">
+                                            ·
+                                            {[...new Set([
+                                              ...currentColors.helmetColors,
+                                              ...currentColors.bikeColors,
+                                              ...currentColors.jerseyColors,
+                                            ])].map(cid => {
+                                              const c = COLOR_MAP[cid];
+                                              if (!c) return null;
+                                              return (
+                                                <span
+                                                  key={cid}
+                                                  title={c.label}
+                                                  className="w-2.5 h-2.5 rounded-full border inline-block"
+                                                  style={{ backgroundColor: c.hex, borderColor: c.border }}
+                                                />
+                                              );
+                                            })}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
 
-                                  <div className="relative flex items-center" title="Dorsales separados por coma">
-                                    <input
-                                      value={currentDorsals}
-                                      onChange={e => setMediaDorsalEdits(prev => ({ ...prev, [m.id]: e.target.value }))}
-                                      placeholder="Sin dorsales"
-                                      className="input-dark text-xs py-1 pr-6 w-28 font-mono"
-                                    />
-                                    {currentDorsals && (
+                                    {/* Botón "⭐ Usar como portada" / "★ Portada actual" */}
+                                    {m.type !== 'video' && (
                                       <button
                                         type="button"
-                                        onClick={() => setMediaDorsalEdits(prev => ({ ...prev, [m.id]: '' }))}
-                                        title="Limpiar dorsales"
-                                        className="absolute right-1.5 text-gray-400 hover:text-red-400 text-xs font-bold"
+                                        disabled={isCurrentCover || settingCoverMediaId === m.id}
+                                        onClick={() => handleSetAlbumCover(album.id, m.url || m.thumb, m.id)}
+                                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border transition-all ${
+                                          isCurrentCover
+                                            ? 'bg-neon-green text-black border-neon-green cursor-default shadow-sm'
+                                            : 'bg-dark-800 border-dark-600 text-gray-300 hover:border-neon-green hover:text-neon-green'
+                                        }`}
+                                        title={isCurrentCover ? 'Esta foto ya es la portada actual del álbum' : 'Fijar esta foto como portada del álbum'}
                                       >
-                                        ✕
+                                        {settingCoverMediaId === m.id ? (
+                                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                        ) : (
+                                          <Star className={`w-3.5 h-3.5 ${isCurrentCover ? 'fill-current' : ''}`} />
+                                        )}
+                                        <span>{isCurrentCover ? '★ Portada actual' : '⭐ Usar como portada'}</span>
                                       </button>
                                     )}
-                                  </div>
 
-                                  {m.type === 'photo' && (
+                                    <div className="relative flex items-center" title="Dorsales separados por coma">
+                                      <input
+                                        value={currentDorsals}
+                                        onChange={e => setMediaDorsalEdits(prev => ({ ...prev, [m.id]: e.target.value }))}
+                                        placeholder="Sin dorsales"
+                                        className="input-dark text-xs py-1 pr-6 w-28 font-mono"
+                                      />
+                                      {currentDorsals && (
+                                        <button
+                                          type="button"
+                                          onClick={() => setMediaDorsalEdits(prev => ({ ...prev, [m.id]: '' }))}
+                                          title="Limpiar dorsales"
+                                          className="absolute right-1.5 text-gray-400 hover:text-red-400 text-xs font-bold"
+                                        >
+                                          ✕
+                                        </button>
+                                      )}
+                                    </div>
+
+                                    {m.type === 'photo' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setOpenColorEditorId(isColorOpen ? null : m.id)}
+                                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors ${
+                                          isColorOpen || totalColors > 0
+                                            ? 'bg-neon-green/15 border-neon-green/50 text-neon-green'
+                                            : 'bg-dark-800 border-dark-600 text-gray-300 hover:text-white'
+                                        }`}
+                                        title="Editar colores de Casco, Bicicleta y Remera"
+                                      >
+                                        <Palette className="w-3.5 h-3.5" />
+                                        <span>Colores ({totalColors})</span>
+                                      </button>
+                                    )}
+
+                                    <div className="flex items-center gap-1 bg-dark-800 px-1.5 py-0.5 rounded border border-dark-600" title="Precio individual ($)">
+                                      <span className="text-gray-400 text-[11px]">$</span>
+                                      <input
+                                        type="number"
+                                        value={currentPrice}
+                                        onChange={e => setMediaPriceEdits(prev => ({ ...prev, [m.id]: e.target.value }))}
+                                        placeholder={m.type === 'video' ? '3000' : '2000'}
+                                        className="bg-transparent text-white text-xs w-14 font-mono focus:outline-none"
+                                        min="0"
+                                        step="100"
+                                      />
+                                    </div>
+
+                                    <button
+                                      onClick={() => saveMediaItem(album.id, m.id)}
+                                      disabled={!dirty || savingMediaId === m.id}
+                                      title="Guardar cambios (dorsales, colores y precio)"
+                                      className="p-1.5 rounded text-neon-green hover:bg-neon-green/10 disabled:opacity-30 disabled:hover:bg-transparent"
+                                    >
+                                      {savingMediaId === m.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                    </button>
+
                                     <button
                                       type="button"
-                                      onClick={() => setOpenColorEditorId(isColorOpen ? null : m.id)}
-                                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors ${
-                                        isColorOpen || totalColors > 0
-                                          ? 'bg-neon-green/15 border-neon-green/50 text-neon-green'
-                                          : 'bg-dark-800 border-dark-600 text-gray-300 hover:text-white'
-                                      }`}
-                                      title="Editar colores de Casco, Bicicleta y Remera"
+                                      onClick={() => setConfirmDeleteMedia({ albumId: album.id, media: m })}
+                                      disabled={deletingMediaId === m.id}
+                                      title="Eliminar esta foto del álbum 🗑️"
+                                      className="p-1.5 rounded text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-30"
                                     >
-                                      <Palette className="w-3.5 h-3.5" />
-                                      <span>Colores ({totalColors})</span>
+                                      {deletingMediaId === m.id ? <Loader2 className="w-4 h-4 animate-spin text-red-400" /> : <Trash2 className="w-4 h-4" />}
                                     </button>
-                                  )}
-
-                                  <div className="flex items-center gap-1 bg-dark-800 px-1.5 py-0.5 rounded border border-dark-600" title="Precio individual ($)">
-                                    <span className="text-gray-400 text-[11px]">$</span>
-                                    <input
-                                      type="number"
-                                      value={currentPrice}
-                                      onChange={e => setMediaPriceEdits(prev => ({ ...prev, [m.id]: e.target.value }))}
-                                      placeholder={m.type === 'video' ? '3000' : '2000'}
-                                      className="bg-transparent text-white text-xs w-14 font-mono focus:outline-none"
-                                      min="0"
-                                      step="100"
-                                    />
                                   </div>
 
-                                  <button
-                                    onClick={() => saveMediaItem(album.id, m.id)}
-                                    disabled={!dirty || savingMediaId === m.id}
-                                    title="Guardar cambios (dorsales, colores y precio)"
-                                    className="p-1.5 rounded text-neon-green hover:bg-neon-green/10 disabled:opacity-30 disabled:hover:bg-transparent"
-                                  >
-                                    {savingMediaId === m.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    onClick={() => setConfirmDeleteMedia({ albumId: album.id, media: m })}
-                                    disabled={deletingMediaId === m.id}
-                                    title="Eliminar esta foto del álbum 🗑️"
-                                    className="p-1.5 rounded text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-30"
-                                  >
-                                    {deletingMediaId === m.id ? <Loader2 className="w-4 h-4 animate-spin text-red-400" /> : <Trash2 className="w-4 h-4" />}
-                                  </button>
-                                </div>
-
-                                {/* Editor desplegable de colores para esta foto ya subida */}
-                                {isColorOpen && (
-                                  <div className="bg-dark-800/90 border border-dark-600 rounded-xl p-3 space-y-2.5">
-                                    {ATTRIBUTE_FIELDS.map(({ key, label }) => (
-                                      <div key={key} className="space-y-1">
-                                        <span className="text-[11px] font-bold text-gray-300 block">{label}</span>
-                                        <ColorChipsSelector
-                                          values={currentColors[key] || []}
-                                          onToggle={(colorId) => toggleMediaColorTag(m.id, key, colorId)}
-                                          disabled={savingMediaId === m.id}
-                                        />
+                                  {/* Editor desplegable de colores para esta foto ya subida */}
+                                  {isColorOpen && (
+                                    <div className="bg-dark-800/90 border border-dark-600 rounded-xl p-3 space-y-2.5">
+                                      {ATTRIBUTE_FIELDS.map(({ key, label }) => (
+                                        <div key={key} className="space-y-1">
+                                          <span className="text-[11px] font-bold text-gray-300 block">{label}</span>
+                                          <ColorChipsSelector
+                                            values={currentColors[key] || []}
+                                            onToggle={(colorId) => toggleMediaColorTag(m.id, key, colorId)}
+                                            disabled={savingMediaId === m.id}
+                                          />
+                                        </div>
+                                      ))}
+                                      <div className="flex items-center justify-end gap-2 pt-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => setOpenColorEditorId(null)}
+                                          className="text-xs text-gray-400 hover:text-white px-2 py-1"
+                                        >
+                                          Cerrar
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={!dirty || savingMediaId === m.id}
+                                          onClick={() => saveMediaItem(album.id, m.id)}
+                                          className="btn-neon text-xs py-1 px-3 inline-flex items-center gap-1.5 disabled:opacity-40"
+                                        >
+                                          {savingMediaId === m.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                                          Guardar colores
+                                        </button>
                                       </div>
-                                    ))}
-                                    <div className="flex items-center justify-end gap-2 pt-1">
-                                      <button
-                                        type="button"
-                                        onClick={() => setOpenColorEditorId(null)}
-                                        className="text-xs text-gray-400 hover:text-white px-2 py-1"
-                                      >
-                                        Cerrar
-                                      </button>
-                                      <button
-                                        type="button"
-                                        disabled={!dirty || savingMediaId === m.id}
-                                        onClick={() => saveMediaItem(album.id, m.id)}
-                                        className="btn-neon text-xs py-1 px-3 inline-flex items-center gap-1.5 disabled:opacity-40"
-                                      >
-                                        {savingMediaId === m.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                                        Guardar colores
-                                      </button>
                                     </div>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            ))}
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

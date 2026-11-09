@@ -11,8 +11,16 @@ function formatDate(ts) {
 }
 
 export default function AlbumCard({ album }) {
-  const [cover, setCover] = useState(album.coverUrl || album.coverImage || null);
+  const [cover, setCover] = useState(album.coverUrl || album.cover || album.coverImage || null);
   const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    const nextCover = album.coverUrl || album.cover || album.coverImage || null;
+    if (nextCover) {
+      setCover(nextCover);
+      setImgError(false);
+    }
+  }, [album.coverUrl, album.cover, album.coverImage]);
 
   // Si el álbum no tiene portada guardada, obtenemos la primera foto subida a Cloudinary
   useEffect(() => {

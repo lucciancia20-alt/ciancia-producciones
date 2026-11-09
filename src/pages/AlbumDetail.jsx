@@ -200,7 +200,7 @@ export default function AlbumDetail() {
     );
   }
 
-  const heroCover = album.coverUrl || album.coverImage || (media.length > 0 ? (media[0].thumb || media[0].url) : null);
+  const heroCover = album.coverUrl || album.cover || album.coverImage || (media.length > 0 ? (media[0].thumb || media[0].url) : null);
 
   return (
     <div className="min-h-screen pt-16">
