@@ -1347,7 +1347,7 @@ export default function AdminAlbums() {
                           <div className="flex items-center gap-2 flex-wrap">
                             <p className="text-white text-sm font-semibold truncate leading-tight">{item.file.name}</p>
                             {isSelectedQueueCover && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-black bg-neon-green text-black shadow-sm">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-cyan-500/15 border border-cyan-400/50 text-cyan-200">
                                 ★ Portada actual
                               </span>
                             )}
@@ -1577,10 +1577,10 @@ export default function AdminAlbums() {
                                     isIndividual: !isIndActive,
                                   });
                                 }}
-                                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black border transition-all ${
+                                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${
                                   isIndActive
-                                    ? 'bg-amber-400 text-black border-amber-300 shadow-sm'
-                                    : 'bg-amber-500/15 hover:bg-amber-400 text-amber-300 hover:text-black border-amber-500/40'
+                                    ? 'bg-amber-500/20 text-amber-200 border-amber-400/60 shadow-sm'
+                                    : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/40'
                                 }`}
                               >
                                 <span>
@@ -2108,12 +2108,12 @@ export default function AdminAlbums() {
                                       <div className="flex items-center gap-2 flex-wrap">
                                         <p className="text-xs text-gray-200 font-semibold truncate">{m.fileName}</p>
                                         {isCurrentCover && (
-                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-neon-green text-black shadow-sm">
+                                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-cyan-500/15 border border-cyan-400/50 text-cyan-200">
                                             ★ Portada actual
                                           </span>
                                         )}
                                         {isIndividualFeatured && (
-                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-black shadow-sm">
+                                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium tracking-wide bg-amber-500/15 border border-amber-400/50 text-amber-200">
                                             ⭐ Toma Individual (${Number(m.price).toLocaleString('es-AR')})
                                           </span>
                                         )}
@@ -2216,9 +2216,9 @@ export default function AdminAlbums() {
                                           applyQuickMediaPrice(album.id, m, individualPlus50Price, true);
                                         }
                                       }}
-                                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border transition-all ${
+                                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
                                         isIndividualFeatured
-                                          ? 'bg-amber-400/20 border-amber-400 text-amber-300 hover:bg-amber-400/30'
+                                          ? 'bg-amber-500/20 border-amber-400/60 text-amber-200 hover:bg-amber-500/30'
                                           : 'bg-dark-800 border-amber-500/40 text-amber-300 hover:bg-amber-500/15 hover:border-amber-400'
                                       }`}
                                       title={

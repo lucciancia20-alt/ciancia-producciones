@@ -164,7 +164,7 @@ export default function MediaCard({
 
         {/* Insignia de Foto Individual / Toma Exclusiva */}
         {isIndividualFeatured && !isVideo && (
-          <div className="absolute top-2 left-2 z-20 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-400/95 text-black font-black text-[10px] shadow-md border border-amber-200/80">
+          <div className="absolute top-2 left-2 z-20 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-dark-900/85 backdrop-blur-sm text-amber-200 font-medium text-[11px] tracking-wide shadow-md border border-amber-400/60">
             <span>⭐ Toma Individual</span>
           </div>
         )}
@@ -221,7 +221,7 @@ export default function MediaCard({
           <span
             className={
               isIndividualFeatured
-                ? 'text-amber-300 bg-amber-500/15 border border-amber-400/40 px-2 py-0.5 rounded-md font-extrabold text-sm shadow-sm'
+                ? 'text-amber-200 bg-amber-500/15 border border-amber-400/50 px-2 py-0.5 rounded-md font-semibold text-sm shadow-sm'
                 : 'text-neon-green font-bold text-sm'
             }
             title={isIndividualFeatured ? 'Toma exclusiva individual' : undefined}
@@ -255,10 +255,10 @@ export default function MediaCard({
               const nextPrice = isIndividualFeatured ? defaultAlbumPrice : suggestedIndividualPrice;
               handleSaveCustomPrice(nextPrice, !isIndividualFeatured);
             }}
-            className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-black border transition-all ${
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border transition-all ${
               isIndividualFeatured
-                ? 'bg-amber-400 text-black border-amber-300 shadow-sm'
-                : 'bg-amber-500/15 hover:bg-amber-400 text-amber-300 hover:text-black border-amber-500/40'
+                ? 'bg-amber-500/20 text-amber-200 border-amber-400/60 shadow-sm'
+                : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/40'
             }`}
             title={
               isIndividualFeatured
