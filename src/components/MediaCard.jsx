@@ -14,7 +14,14 @@ const blockDrag = (e) => e.preventDefault();
 
 const CARD_MAX_DIM = 520; // Muestra en baja resolución para las tarjetas del catálogo
 
-export default function MediaCard({ media, onView, onDelete, albumLogoUrl = '', albumLogoPublicId = '' }) {
+export default function MediaCard({
+  media,
+  onView,
+  onDelete,
+  albumLogoUrl = '',
+  albumLogoPublicId = '',
+  albumBasePrice,
+}) {
   const { addItem, removeItem, items } = useCart();
   const [isPortrait, setIsPortrait]    = useState(false);
   const [loaded, setLoaded]            = useState(false);
@@ -22,7 +29,9 @@ export default function MediaCard({ media, onView, onDelete, albumLogoUrl = '', 
 
   const inCart    = items.some(i => i.id === media.id);
   const isVideo   = media.type === 'video';
-  const itemPrice = Number(media.price) || (isVideo ? 3000 : 2000);
+  const defaultAlbumPrice = Number(albumBasePrice) || (isVideo ? 3000 : 2000);
+  const itemPrice = Number(media.price) || defaultAlbumPrice;
+  const isIndividualFeatured = Boolean(media.isIndividual || itemPrice > defaultAlbumPrice);
   const resolvedLogoUrl = media.eventLogoUrl || albumLogoUrl || '';
   const resolvedLogoPublicId = media.eventLogoPublicId || albumLogoPublicId || '';
 
@@ -90,7 +99,11 @@ export default function MediaCard({ media, onView, onDelete, albumLogoUrl = '', 
 
   return (
     <div
-      className="card-dark group hover:border-neon-green/40 hover:shadow-lg hover:shadow-neon-green/5 cursor-pointer select-none"
+      className={`card-dark group cursor-pointer select-none transition-all ${
+        isIndividualFeatured
+          ? 'border border-amber-400/50 hover:border-amber-400 hover:shadow-lg hover:shadow-amber-500/10'
+          : 'hover:border-neon-green/40 hover:shadow-lg hover:shadow-neon-green/5'
+      }`}
       style={{
         userSelect:         'none',
         WebkitUserSelect:   'none',
@@ -129,6 +142,13 @@ export default function MediaCard({ media, onView, onDelete, albumLogoUrl = '', 
             isPortrait ? 'object-contain bg-dark-900' : 'object-cover object-center'
           }`}
         />
+
+        {/* Insignia de Foto Individual / Toma Exclusiva */}
+        {isIndividualFeatured && !isVideo && (
+          <div className="absolute top-2 left-2 z-20 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-400/95 text-black font-black text-[10px] shadow-md border border-amber-200/80">
+            <span>⭐ Toma Individual</span>
+          </div>
+        )}
 
         {/* Badge de video */}
         {isVideo && (
@@ -179,7 +199,16 @@ export default function MediaCard({ media, onView, onDelete, albumLogoUrl = '', 
           )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <span className="text-neon-green font-bold text-sm">{formatPrice(itemPrice)}</span>
+          <span
+            className={
+              isIndividualFeatured
+                ? 'text-amber-300 bg-amber-500/15 border border-amber-400/40 px-2 py-0.5 rounded-md font-extrabold text-sm shadow-sm'
+                : 'text-neon-green font-bold text-sm'
+            }
+            title={isIndividualFeatured ? 'Toma exclusiva individual' : undefined}
+          >
+            {formatPrice(itemPrice)}
+          </span>
           <button
             onClick={handleCart}
             className={`p-2 rounded-lg transition-all ${

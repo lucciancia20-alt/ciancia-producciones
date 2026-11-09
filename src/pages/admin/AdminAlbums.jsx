@@ -79,6 +79,7 @@ export default function AdminAlbums() {
   const [settingCoverMediaId, setSettingCoverMediaId] = useState(null); // mediaId actualizando portada
   const [albumPriceEdits, setAlbumPriceEdits]   = useState({}); // { [albumId]: { pricePhoto, priceVideo } }
   const [savingMediaId, setSavingMediaId]       = useState(null);
+  const [savedPriceMediaId, setSavedPriceMediaId] = useState(null);
   const [savingAlbumPriceId, setSavingAlbumPriceId] = useState(null);
   const [editingAlbumId, setEditingAlbumId]     = useState(null);
   const [albumInfoEdits, setAlbumInfoEdits]     = useState({
@@ -197,9 +198,13 @@ export default function AdminAlbums() {
     try {
       const dorsals = [...new Set((mediaDorsalEdits[mediaId] || '').split(',').map(d => d.trim()).filter(Boolean))];
       const m = albumMedia[albumId]?.find(item => item.id === mediaId);
-      const defaultP = m?.type === 'video' ? 3000 : 2000;
+      const albumObj = albums.find(a => a.id === albumId);
+      const baseAlbumPrice = m?.type === 'video'
+        ? (Number(albumObj?.priceVideo) || 3000)
+        : (Number(albumObj?.pricePhoto) || 2000);
       const rawPrice = mediaPriceEdits[mediaId];
-      const price = Number(rawPrice) > 0 ? Number(rawPrice) : (m?.price || defaultP);
+      const price = Number(rawPrice) > 0 ? Number(rawPrice) : (m?.price || baseAlbumPrice);
+      const isIndividual = price > baseAlbumPrice;
 
       const colorEdit = mediaColorEdits[mediaId] || {
         helmetColors: m?.helmetColors || [],
@@ -214,6 +219,7 @@ export default function AdminAlbums() {
         dorsals,
         bibs: dorsals,
         price,
+        isIndividual,
         helmetColors,
         bikeColors,
         jerseyColors,
@@ -224,8 +230,38 @@ export default function AdminAlbums() {
         ...prev,
         [albumId]: (prev[albumId] || []).map(item => item.id === mediaId ? { ...item, ...updates } : item),
       }));
+      setSavedPriceMediaId(mediaId);
+      setTimeout(() => setSavedPriceMediaId(prev => (prev === mediaId ? null : prev)), 2200);
     } catch (e) { alert('Error guardando cambios: ' + e.message); }
     finally { setSavingMediaId(null); }
+  };
+
+  // Aplica y guarda al instante un precio individual sugerido (ej. ⭐ Foto Individual +50%)
+  const applyQuickMediaPrice = async (albumId, mediaItem, targetPrice, isIndividual = true) => {
+    if (!albumId || !mediaItem) return;
+    const mediaId = mediaItem.id;
+    const numericPrice = Math.max(0, Number(targetPrice) || 2000);
+
+    // Actualizar input y estado local al instante
+    setMediaPriceEdits(prev => ({ ...prev, [mediaId]: String(numericPrice) }));
+    setSavingMediaId(mediaId);
+    try {
+      const updates = {
+        price: numericPrice,
+        isIndividual: Boolean(isIndividual),
+      };
+      await updateDoc(doc(db, 'media', mediaId), updates);
+      setAlbumMedia(prev => ({
+        ...prev,
+        [albumId]: (prev[albumId] || []).map(item => item.id === mediaId ? { ...item, ...updates } : item),
+      }));
+      setSavedPriceMediaId(mediaId);
+      setTimeout(() => setSavedPriceMediaId(prev => (prev === mediaId ? null : prev)), 2200);
+    } catch (e) {
+      alert('Error al guardar precio individual: ' + e.message);
+    } finally {
+      setSavingMediaId(null);
+    }
   };
 
   const saveAlbumPrices = async (albumId) => {
@@ -1921,10 +1957,15 @@ export default function AdminAlbums() {
                         ) : (
                           <div className="grid grid-cols-1 gap-2.5 max-h-[520px] overflow-y-auto pr-1">
                             {albumMedia[album.id].map(m => {
+                              const albumBasePrice = m.type === 'video'
+                                ? (Number(album.priceVideo) || 3000)
+                                : (Number(album.pricePhoto) || 2000);
+                              const individualPlus50Price = Math.round((albumBasePrice * 1.5) / 100) * 100;
                               const originalDorsals = (m.dorsals || m.bibs || []).join(', ');
-                              const originalPrice = m.price !== undefined && m.price !== null ? String(m.price) : (m.type === 'video' ? '3000' : '2000');
+                              const originalPrice = m.price !== undefined && m.price !== null ? String(m.price) : String(albumBasePrice);
                               const currentDorsals = mediaDorsalEdits[m.id] ?? originalDorsals;
                               const currentPrice = mediaPriceEdits[m.id] ?? originalPrice;
+                              const isIndividualFeatured = Boolean(m.isIndividual || Number(m.price) > albumBasePrice);
 
                               const origHelmet = normalizeColorList(m.helmetColors || []);
                               const origBike   = normalizeColorList(m.bikeColors || []);
@@ -1963,7 +2004,9 @@ export default function AdminAlbums() {
                                   className={`rounded-xl p-2.5 transition-all space-y-2 ${
                                     isCurrentCover
                                       ? 'bg-neon-green/10 border-2 border-neon-green shadow-md shadow-neon-green/10'
-                                      : 'bg-dark-700 border border-dark-500'
+                                      : isIndividualFeatured
+                                        ? 'bg-amber-500/5 border border-amber-500/40 shadow-sm'
+                                        : 'bg-dark-700 border border-dark-500'
                                   }`}
                                 >
                                   <div className="flex flex-wrap items-center gap-2">
@@ -1972,7 +2015,11 @@ export default function AdminAlbums() {
                                         src={m.thumb || m.url}
                                         alt={m.fileName}
                                         className={`w-14 h-10 object-cover rounded ${
-                                          isCurrentCover ? 'ring-2 ring-neon-green' : ''
+                                          isCurrentCover
+                                            ? 'ring-2 ring-neon-green'
+                                            : isIndividualFeatured
+                                              ? 'ring-1 ring-amber-400'
+                                              : ''
                                         }`}
                                         draggable={false}
                                       />
@@ -1983,6 +2030,11 @@ export default function AdminAlbums() {
                                         {isCurrentCover && (
                                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-neon-green text-black shadow-sm">
                                             ★ Portada actual
+                                          </span>
+                                        )}
+                                        {isIndividualFeatured && (
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-black shadow-sm">
+                                            ⭐ Toma Individual (${Number(m.price).toLocaleString('es-AR')})
                                           </span>
                                         )}
                                       </div>
@@ -2041,6 +2093,7 @@ export default function AdminAlbums() {
                                       <input
                                         value={currentDorsals}
                                         onChange={e => setMediaDorsalEdits(prev => ({ ...prev, [m.id]: e.target.value }))}
+                                        onKeyDown={e => { if (e.key === 'Enter') saveMediaItem(album.id, m.id); }}
                                         placeholder="Sin dorsales"
                                         className="input-dark text-xs py-1 pr-6 w-28 font-mono"
                                       />
@@ -2072,26 +2125,81 @@ export default function AdminAlbums() {
                                       </button>
                                     )}
 
-                                    <div className="flex items-center gap-1 bg-dark-800 px-1.5 py-0.5 rounded border border-dark-600" title="Precio individual ($)">
-                                      <span className="text-gray-400 text-[11px]">$</span>
+                                    {/* Botón rápido de estrategia: ⭐ Foto Individual +50% */}
+                                    <button
+                                      type="button"
+                                      disabled={savingMediaId === m.id}
+                                      onClick={() => {
+                                        if (isIndividualFeatured && Number(m.price) === individualPlus50Price) {
+                                          applyQuickMediaPrice(album.id, m, albumBasePrice, false);
+                                        } else {
+                                          applyQuickMediaPrice(album.id, m, individualPlus50Price, true);
+                                        }
+                                      }}
+                                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border transition-all ${
+                                        isIndividualFeatured
+                                          ? 'bg-amber-400/20 border-amber-400 text-amber-300 hover:bg-amber-400/30'
+                                          : 'bg-dark-800 border-amber-500/40 text-amber-300 hover:bg-amber-500/15 hover:border-amber-400'
+                                      }`}
+                                      title={
+                                        isIndividualFeatured && Number(m.price) === individualPlus50Price
+                                          ? `Volver al precio base del álbum ($${albumBasePrice.toLocaleString('es-AR')})`
+                                          : `Aplicar y guardar precio de Foto Individual +50% ($${individualPlus50Price.toLocaleString('es-AR')})`
+                                      }
+                                    >
+                                      <span>
+                                        {isIndividualFeatured && Number(m.price) === individualPlus50Price
+                                          ? `↩ Base ($${albumBasePrice.toLocaleString('es-AR')})`
+                                          : `⭐ Foto Individual +50% ($${individualPlus50Price.toLocaleString('es-AR')})`}
+                                      </span>
+                                    </button>
+
+                                    {/* Campo de Precio Individual editable + Guardado directo */}
+                                    <div
+                                      className={`flex items-center gap-1 bg-dark-800 px-2 py-1 rounded-lg border transition-colors ${
+                                        isIndividualFeatured ? 'border-amber-400/60' : 'border-cyan-500/40'
+                                      }`}
+                                      title="Precio individual de esta foto ($ ARS) — presioná Enter o Guardar para impactar en Firestore"
+                                    >
+                                      <span className="text-cyan-400 text-xs font-bold">$</span>
                                       <input
                                         type="number"
                                         value={currentPrice}
                                         onChange={e => setMediaPriceEdits(prev => ({ ...prev, [m.id]: e.target.value }))}
-                                        placeholder={m.type === 'video' ? '3000' : '2000'}
-                                        className="bg-transparent text-white text-xs w-14 font-mono focus:outline-none"
+                                        onKeyDown={e => { if (e.key === 'Enter') saveMediaItem(album.id, m.id); }}
+                                        placeholder={String(albumBasePrice)}
+                                        className="bg-transparent text-white text-xs w-16 font-mono font-bold focus:outline-none"
                                         min="0"
                                         step="100"
                                       />
                                     </div>
 
                                     <button
+                                      type="button"
                                       onClick={() => saveMediaItem(album.id, m.id)}
-                                      disabled={!dirty || savingMediaId === m.id}
-                                      title="Guardar cambios (dorsales, colores y precio)"
-                                      className="p-1.5 rounded text-neon-green hover:bg-neon-green/10 disabled:opacity-30 disabled:hover:bg-transparent"
+                                      disabled={savingMediaId === m.id}
+                                      title="Guardar precio, dorsales y colores en Firestore"
+                                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border transition-all ${
+                                        savedPriceMediaId === m.id
+                                          ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
+                                          : dirty
+                                            ? 'bg-cyan-500 text-black border-cyan-400 shadow-sm hover:bg-cyan-400'
+                                            : 'bg-dark-800 border-dark-600 text-cyan-400 hover:border-cyan-400 hover:bg-cyan-500/10'
+                                      }`}
                                     >
-                                      {savingMediaId === m.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                      {savingMediaId === m.id ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      ) : savedPriceMediaId === m.id ? (
+                                        <>
+                                          <Check className="w-3.5 h-3.5" />
+                                          <span>Guardado</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Save className="w-3.5 h-3.5" />
+                                          <span>Guardar</span>
+                                        </>
+                                      )}
                                     </button>
 
                                     <button

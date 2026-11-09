@@ -589,6 +589,11 @@ export default function AlbumDetail() {
                 onDelete={user ? setConfirmDeleteMedia : undefined}
                 albumLogoUrl={album?.eventLogoUrl || ''}
                 albumLogoPublicId={album?.eventLogoPublicId || ''}
+                albumBasePrice={
+                  item.type === 'video'
+                    ? (Number(album?.priceVideo) || 3000)
+                    : (Number(album?.pricePhoto) || 2000)
+                }
               />
             ))}
           </div>
