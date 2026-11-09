@@ -103,7 +103,11 @@ export default function CartDrawer({ onClose }) {
                 </button>
               </div>
             </div>
-            {couponError && <p className="text-red-400 text-xs">{couponError}</p>}
+            {couponError && (
+              <div className="p-2.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-semibold">
+                ⚠️ {couponError}
+              </div>
+            )}
             {coupon && (
               <div className="flex items-center justify-between text-sm bg-neon-green/10 border border-neon-green/20 rounded-lg p-2">
                 <span className="text-neon-green flex items-center gap-1.5 text-xs font-semibold">

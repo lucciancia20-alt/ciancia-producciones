@@ -161,12 +161,22 @@ export default function AlbumDetail() {
       try {
         // Get album
         const albumDoc = await getDoc(doc(db, 'albums', albumId));
+        let loadedAlbum = null;
         if (albumDoc.exists()) {
-          setAlbum({ id: albumDoc.id, ...albumDoc.data() });
+          loadedAlbum = { id: albumDoc.id, ...albumDoc.data() };
+          setAlbum(loadedAlbum);
         }
         // Get media for album
         const snap = await getDocs(query(collection(db, 'media'), where('albumId', '==', albumId)));
-        setMedia(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setMedia(snap.docs.map(d => {
+          const data = d.data();
+          return {
+            id: d.id,
+            ...data,
+            albumId: data.albumId || albumId,
+            albumTitle: data.albumTitle || loadedAlbum?.title || '',
+          };
+        }));
       } catch (e) {
         console.error(e);
       } finally {

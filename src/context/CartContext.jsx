@@ -1,9 +1,17 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { getLowResSampleUrl } from '../services/cloudinary';
 
 const CartContext = createContext(null);
+
+function normalizeStr(s) {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
 
 // Pricing rules — Valores por defecto de Ciancia Producciones
 export const DEFAULT_PRICES = {
@@ -51,11 +59,43 @@ export function CartProvider({ children }) {
     setCouponError('');
   }, []);
 
+  // Re-validar cupón automáticamente si cambian las fotos del carrito
+  useEffect(() => {
+    if (!coupon) return;
+    if (items.length === 0) {
+      setCoupon(null);
+      return;
+    }
+    const targetAlbumId = coupon.albumId && coupon.albumId !== 'ALL' ? coupon.albumId : '';
+    const targetAlbumTitle = coupon.albumTitle || '';
+    if (!targetAlbumId && !targetAlbumTitle) return;
+
+    const allMatch = items.every(item => {
+      const itemAlbumId = item.albumId || '';
+      const itemAlbumTitle = item.albumTitle || '';
+      const matchId = Boolean(targetAlbumId && itemAlbumId && itemAlbumId === targetAlbumId);
+      const matchTitle = Boolean(
+        targetAlbumTitle && itemAlbumTitle && normalizeStr(itemAlbumTitle) === normalizeStr(targetAlbumTitle)
+      );
+      return matchId || matchTitle;
+    });
+
+    if (!allMatch) {
+      setCoupon(null);
+      setCouponError('Este cupón no es válido para este álbum');
+    }
+  }, [items, coupon]);
+
   const applyCoupon = useCallback(async (rawCode) => {
     if (!rawCode || !rawCode.trim()) {
       setCouponError('Ingresá un código');
       return false;
     }
+    if (items.length === 0) {
+      setCouponError('Agregá fotos al carrito antes de aplicar un cupón');
+      return false;
+    }
+
     const code = rawCode.trim().toUpperCase().replace(/\s+/g, '');
     setCouponLoading(true);
     setCouponError('');
@@ -68,8 +108,88 @@ export function CartProvider({ children }) {
       if (!snap.empty) {
         const docData = snap.docs[0].data();
         if (docData.active === false) {
+          setCoupon(null);
           setCouponError('El cupón está inactivo o vencido');
           return false;
+        }
+
+        // 2. Validar restricción obligatoria por Álbum
+        if (docData.albumId !== 'ALL') {
+          let albumsById = {};
+          let albumsList = [];
+          try {
+            const albumsSnap = await getDocs(collection(db, 'albums'));
+            albumsList = albumsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            albumsList.forEach(a => {
+              albumsById[a.id] = a.title || '';
+            });
+          } catch (albumErr) {
+            console.warn('[CartContext] No se pudo consultar colección albums:', albumErr);
+          }
+
+          let targetAlbumId = docData.albumId || '';
+          let targetAlbumTitle = docData.albumTitle || (targetAlbumId ? (albumsById[targetAlbumId] || '') : '');
+
+          // Compatibilidad con cupones donde el álbum fue ingresado en label/albumTitle (ej. "Prueba" o "Desafío Circuito Chico")
+          if (!targetAlbumId && !targetAlbumTitle && docData.label) {
+            const rawLabel = String(docData.label).trim();
+            const matchedAlbum = albumsList.find(a => normalizeStr(a.title) === normalizeStr(rawLabel));
+            if (matchedAlbum) {
+              targetAlbumId = matchedAlbum.id;
+              targetAlbumTitle = matchedAlbum.title || rawLabel;
+            } else {
+              const isGenericDiscountText = /^\d+%?\s*(de descuento|off)/i.test(rawLabel);
+              if (!isGenericDiscountText) {
+                targetAlbumTitle = rawLabel;
+              }
+            }
+          } else if (!targetAlbumId && targetAlbumTitle) {
+            const matchedAlbum = albumsList.find(a => normalizeStr(a.title) === normalizeStr(targetAlbumTitle));
+            if (matchedAlbum) {
+              targetAlbumId = matchedAlbum.id;
+            }
+          }
+
+          // Si el cupón pertenece a un álbum específico, todas las fotos del carrito deben ser de ese mismo álbum
+          if (targetAlbumId || targetAlbumTitle) {
+            const allItemsBelongToCouponAlbum = items.every(item => {
+              const itemAlbumId = item.albumId || '';
+              const itemAlbumTitle = item.albumTitle || (itemAlbumId ? (albumsById[itemAlbumId] || '') : '');
+              const matchById = Boolean(targetAlbumId && itemAlbumId && itemAlbumId === targetAlbumId);
+              const matchByTitle = Boolean(
+                targetAlbumTitle && itemAlbumTitle && normalizeStr(itemAlbumTitle) === normalizeStr(targetAlbumTitle)
+              );
+              return matchById || matchByTitle;
+            });
+
+            if (!allItemsBelongToCouponAlbum) {
+              setCoupon(null);
+              setCouponError('Este cupón no es válido para este álbum');
+              return false;
+            }
+          }
+
+          const type = docData.type || 'percent';
+          const numValue = Number(docData.value) || 0;
+          const discountFraction = type === 'percent' ? (numValue > 1 ? numValue / 100 : numValue) : 0;
+          const label = docData.label || targetAlbumTitle || (
+            type === 'percent'
+              ? `${numValue}% de descuento`
+              : `$${numValue.toLocaleString('es-AR')} de descuento`
+          );
+
+          setCoupon({
+            id: snap.docs[0].id,
+            code,
+            type,
+            value: numValue,
+            discount: discountFraction,
+            albumId: targetAlbumId,
+            albumTitle: targetAlbumTitle,
+            label,
+          });
+          setCouponError('');
+          return true;
         }
 
         const type = docData.type || 'percent';
@@ -87,13 +207,15 @@ export function CartProvider({ children }) {
           type,
           value: numValue,
           discount: discountFraction,
+          albumId: 'ALL',
+          albumTitle: '',
           label,
         });
         setCouponError('');
         return true;
       }
 
-      // 2. Fallback a cupones estándar locales
+      // 3. Fallback a cupones estándar locales
       if (COUPONS[code]) {
         const c = COUPONS[code];
         setCoupon({
@@ -101,12 +223,15 @@ export function CartProvider({ children }) {
           type: 'percent',
           value: Math.round(c.discount * 100),
           discount: c.discount,
+          albumId: 'ALL',
+          albumTitle: '',
           label: c.label,
         });
         setCouponError('');
         return true;
       }
 
+      setCoupon(null);
       setCouponError('Cupón inválido');
       return false;
     } catch (err) {
@@ -119,6 +244,8 @@ export function CartProvider({ children }) {
           type: 'percent',
           value: Math.round(c.discount * 100),
           discount: c.discount,
+          albumId: 'ALL',
+          albumTitle: '',
           label: c.label,
         });
         setCouponError('');
@@ -129,7 +256,7 @@ export function CartProvider({ children }) {
     } finally {
       setCouponLoading(false);
     }
-  }, []);
+  }, [items]);
 
   const removeCoupon = useCallback(() => {
     setCoupon(null);

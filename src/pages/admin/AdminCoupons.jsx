@@ -13,11 +13,21 @@ function formatPrice(n) {
   return `$${(n || 0).toLocaleString('es-AR')}`;
 }
 
+function normalizeStr(s) {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
 export default function AdminCoupons() {
   const [coupons, setCoupons] = useState([]);
+  const [albums, setAlbums] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [togglingId, setTogglingId] = useState(null);
+  const [updatingAlbumId, setUpdatingAlbumId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
 
@@ -26,6 +36,7 @@ export default function AdminCoupons() {
     code: '',
     type: 'percent', // 'percent' | 'fixed'
     value: '',
+    albumId: '',     // ID del álbum asociado (o 'ALL' para todos los álbumes)
     label: '',
     active: true,
   });
@@ -39,9 +50,25 @@ export default function AdminCoupons() {
   async function loadCoupons() {
     setLoading(true);
     try {
+      // Cargar álbumes para asociar cupones por álbum
+      let loadedAlbums = [];
+      try {
+        const albumSnap = await getDocs(query(collection(db, 'albums'), orderBy('createdAt', 'desc')));
+        loadedAlbums = albumSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } catch {
+        const albumSnap = await getDocs(collection(db, 'albums'));
+        loadedAlbums = albumSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      }
+      setAlbums(loadedAlbums);
+
       const q = query(collection(db, 'coupons'), orderBy('createdAt', 'desc'));
       const snap = await getDocs(q);
-      setCoupons(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setCoupons(list);
+
+      if (loadedAlbums.length > 0) {
+        setForm(prev => ({ ...prev, albumId: prev.albumId || loadedAlbums[0].id }));
+      }
     } catch (err) {
       console.error('Error cargando cupones:', err);
       // Si la colección no tiene índice o falla el orderBy, fallback simple
@@ -57,6 +84,51 @@ export default function AdminCoupons() {
       setLoading(false);
     }
   }
+
+  // Resuelve a qué álbum pertenece un cupón (compatible con cupones previos donde el nombre del álbum se guardó en label)
+  const resolveCouponAlbum = (coupon) => {
+    if (!coupon) return null;
+    if (coupon.albumId === 'ALL') return { id: 'ALL', title: 'Todos los álbumes' };
+    if (coupon.albumId) {
+      const byId = albums.find(a => a.id === coupon.albumId);
+      if (byId) return { id: byId.id, title: byId.title };
+      if (coupon.albumTitle) return { id: coupon.albumId, title: coupon.albumTitle };
+    }
+    if (coupon.albumTitle) {
+      const byTitle = albums.find(a => normalizeStr(a.title) === normalizeStr(coupon.albumTitle));
+      if (byTitle) return { id: byTitle.id, title: byTitle.title };
+      return { id: '', title: coupon.albumTitle };
+    }
+    if (coupon.label) {
+      const byLabel = albums.find(a => normalizeStr(a.title) === normalizeStr(coupon.label));
+      if (byLabel) return { id: byLabel.id, title: byLabel.title };
+      const isGenericLabel = /^\d+%?\s*(de descuento|off)/i.test(coupon.label.trim());
+      if (!isGenericLabel) {
+        return { id: '', title: coupon.label.trim() };
+      }
+    }
+    return null;
+  };
+
+  const handleAssignAlbum = async (coupon, nextAlbumId) => {
+    if (!coupon) return;
+    setUpdatingAlbumId(coupon.id);
+    try {
+      const targetAlbum = albums.find(a => a.id === nextAlbumId);
+      const updates = nextAlbumId === 'ALL'
+        ? { albumId: 'ALL', albumTitle: '' }
+        : {
+            albumId: targetAlbum?.id || nextAlbumId,
+            albumTitle: targetAlbum?.title || '',
+          };
+      await updateDoc(doc(db, 'coupons', coupon.id), updates);
+      setCoupons(prev => prev.map(c => c.id === coupon.id ? { ...c, ...updates } : c));
+    } catch (err) {
+      alert('Error al actualizar el álbum del cupón: ' + err.message);
+    } finally {
+      setUpdatingAlbumId(null);
+    }
+  };
 
   const handleCreateCoupon = async (e) => {
     e.preventDefault();
@@ -80,6 +152,11 @@ export default function AdminCoupons() {
       return;
     }
 
+    if (!form.albumId) {
+      setFormError('Seleccioná el álbum para el cual será válido este cupón.');
+      return;
+    }
+
     // Chequear si ya existe un cupón con el mismo código
     if (coupons.some(c => c.code === cleanCode)) {
       setFormError(`Ya existe un cupón con el código "${cleanCode}".`);
@@ -88,7 +165,11 @@ export default function AdminCoupons() {
 
     setCreating(true);
     try {
-      const defaultLabel = form.label.trim() || (
+      const selectedAlbum = form.albumId === 'ALL'
+        ? null
+        : albums.find(a => a.id === form.albumId);
+
+      const defaultLabel = form.label.trim() || selectedAlbum?.title || (
         form.type === 'percent'
           ? `${numValue}% de descuento`
           : `${formatPrice(numValue)} de descuento`
@@ -98,6 +179,8 @@ export default function AdminCoupons() {
         code: cleanCode,
         type: form.type,
         value: numValue,
+        albumId: form.albumId === 'ALL' ? 'ALL' : (selectedAlbum?.id || form.albumId),
+        albumTitle: selectedAlbum?.title || '',
         label: defaultLabel,
         active: Boolean(form.active),
         createdAt: Timestamp.now(),
@@ -107,8 +190,15 @@ export default function AdminCoupons() {
       const createdItem = { id: docRef.id, ...newCouponData };
 
       setCoupons(prev => [createdItem, ...prev]);
-      setForm({ code: '', type: 'percent', value: '', label: '', active: true });
-      setFormSuccess(`¡Cupón "${cleanCode}" creado exitosamente!`);
+      setForm(prev => ({
+        code: '',
+        type: 'percent',
+        value: '',
+        albumId: prev.albumId || (albums[0]?.id || ''),
+        label: '',
+        active: true,
+      }));
+      setFormSuccess(`¡Cupón "${cleanCode}" creado exitosamente para ${selectedAlbum ? `"${selectedAlbum.title}"` : 'todos los álbumes'}!`);
       setTimeout(() => setFormSuccess(''), 4000);
     } catch (err) {
       console.error('Error al crear cupón:', err);
@@ -189,7 +279,7 @@ export default function AdminCoupons() {
         )}
 
         <form onSubmit={handleCreateCoupon} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             {/* Código */}
             <div>
               <label className="block text-xs font-semibold text-gray-300 uppercase tracking-wider mb-1.5">
@@ -204,6 +294,30 @@ export default function AdminCoupons() {
                 required
               />
               <span className="text-[11px] text-gray-500 mt-1 block">Ej: TEAM-BIKE-15, RUNNING20</span>
+            </div>
+
+            {/* Álbum Asociado */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-300 uppercase tracking-wider mb-1.5">
+                Álbum Asociado *
+              </label>
+              <select
+                value={form.albumId}
+                onChange={e => setForm(f => ({ ...f, albumId: e.target.value }))}
+                className="input-dark text-sm w-full"
+                required
+              >
+                <option value="" disabled>Seleccionar álbum...</option>
+                {albums.map(album => (
+                  <option key={album.id} value={album.id}>
+                    📸 {album.title}
+                  </option>
+                ))}
+                <option value="ALL">🌐 Todos los álbumes (General)</option>
+              </select>
+              <span className="text-[11px] text-gray-500 mt-1 block">
+                Solo válido en las fotos de este álbum
+              </span>
             </div>
 
             {/* Tipo de Descuento */}
@@ -339,6 +453,8 @@ export default function AdminCoupons() {
             {coupons.map(coupon => {
               const isToggling = togglingId === coupon.id;
               const isDeleting = deletingId === coupon.id;
+              const isUpdatingAlbum = updatingAlbumId === coupon.id;
+              const resolvedAlbum = resolveCouponAlbum(coupon);
               const discountDisplay = coupon.type === 'fixed'
                 ? formatPrice(coupon.value)
                 : `${coupon.value}%`;
@@ -376,7 +492,13 @@ export default function AdminCoupons() {
                     </div>
 
                     {/* Meta info */}
-                    <div className="bg-dark-700/60 rounded-lg p-2.5 mb-4 text-xs space-y-1 border border-dark-600">
+                    <div className="bg-dark-700/60 rounded-lg p-2.5 mb-4 text-xs space-y-1.5 border border-dark-600">
+                      <div className="flex justify-between items-center gap-2 text-gray-400">
+                        <span>Álbum válido:</span>
+                        <span className="text-cyan-300 font-bold truncate max-w-[180px]" title={resolvedAlbum?.title || 'Sin restringir'}>
+                          {resolvedAlbum ? `📸 ${resolvedAlbum.title}` : '🌐 Todos los álbumes'}
+                        </span>
+                      </div>
                       <div className="flex justify-between text-gray-400">
                         <span>Modalidad:</span>
                         <span className="text-gray-200 font-medium">
@@ -388,6 +510,24 @@ export default function AdminCoupons() {
                         <span className={coupon.active ? 'text-neon-green font-bold' : 'text-gray-400 font-medium'}>
                           {coupon.active ? '● Activo para clientes' : '○ Pausado / Inactivo'}
                         </span>
+                      </div>
+                      <div className="pt-1.5 border-t border-dark-600/80">
+                        <label className="text-[10px] text-gray-400 uppercase tracking-wider block mb-1">
+                          Cambiar álbum asociado:
+                        </label>
+                        <select
+                          value={resolvedAlbum?.id || 'ALL'}
+                          disabled={isUpdatingAlbum}
+                          onChange={e => handleAssignAlbum(coupon, e.target.value)}
+                          className="w-full bg-dark-800 border border-dark-500 rounded-md px-2 py-1 text-xs text-gray-200 focus:outline-none focus:border-cyan-400 disabled:opacity-50"
+                        >
+                          {albums.map(a => (
+                            <option key={a.id} value={a.id}>
+                              📸 {a.title}
+                            </option>
+                          ))}
+                          <option value="ALL">🌐 Todos los álbumes (General)</option>
+                        </select>
                       </div>
                     </div>
                   </div>

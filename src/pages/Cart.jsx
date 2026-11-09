@@ -43,7 +43,10 @@ export default function Cart() {
                   <img src={item.thumb} alt={item.fileName} className="w-24 h-18 object-cover rounded-lg flex-shrink-0" style={{ height: '72px' }} />
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-white truncate">{item.fileName}</p>
-                    <p className="text-gray-400 text-sm">{item.type === 'video' ? '🎬 Video' : '📷 Foto'}</p>
+                    <p className="text-gray-400 text-sm">
+                      {item.type === 'video' ? '🎬 Video' : '📷 Foto'}
+                      {item.albumTitle && <span className="text-cyan-400/90 text-xs ml-2">· {item.albumTitle}</span>}
+                    </p>
                     {item.dorsals?.length > 0 && (
                       <p className="text-gray-500 text-xs mt-1">Dorsal: {item.dorsals.join(', ')}</p>
                     )}
@@ -85,7 +88,11 @@ export default function Cart() {
                     {couponLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Aplicar'}
                   </button>
                 </div>
-                {couponError && <p className="text-red-400 text-xs">{couponError}</p>}
+                {couponError && (
+                  <div className="p-2.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-semibold">
+                    ⚠️ {couponError}
+                  </div>
+                )}
                 {coupon && (
                   <div className="flex items-center justify-between bg-neon-green/10 border border-neon-green/20 rounded-lg p-2">
                     <span className="text-neon-green text-sm font-semibold">{coupon.code} — {coupon.label}</span>
