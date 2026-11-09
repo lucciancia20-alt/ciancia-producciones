@@ -66,7 +66,7 @@ export function drawWatermarks(ctx, W, H) {
     ctx.stroke();
 
     // Onda fase B (contrafase)
-    ctx.strokeStyle = 'rgba(57, 255, 20, 0.06)';
+    ctx.strokeStyle = 'rgba(6, 182, 212, 0.06)';
     ctx.beginPath();
     for (let x = -diag; x <= diag; x += 14) {
       const y = baseY + Math.cos(x * freq) * amp;
@@ -368,20 +368,20 @@ function PhotoMagnifier({ media, onClose }) {
 
       ctx.restore();
 
-      // Borde del círculo (neon green)
+      // Borde del círculo (cyan)
       ctx.save();
       ctx.beginPath();
       ctx.arc(mx, my, r, 0, Math.PI * 2);
-      ctx.strokeStyle = '#39FF14';
+      ctx.strokeStyle = '#06b6d4';
       ctx.lineWidth   = 2.5;
-      ctx.shadowColor = '#39FF14';
+      ctx.shadowColor = '#06b6d4';
       ctx.shadowBlur  = 14;
       ctx.stroke();
       ctx.restore();
 
       // Cruz de mira
       ctx.save();
-      ctx.strokeStyle = 'rgba(57,255,20,0.75)';
+      ctx.strokeStyle = 'rgba(6,182,212,0.75)';
       ctx.lineWidth   = 1;
       ctx.beginPath();
       ctx.moveTo(mx - 12, my); ctx.lineTo(mx + 12, my);

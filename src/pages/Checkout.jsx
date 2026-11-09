@@ -316,8 +316,8 @@ export default function Checkout() {
                 <div
                   className={`rounded-xl p-4 space-y-2 border ${
                     method === 'transfer'
-                      ? 'bg-neon-green/10 border-neon-green/30 shadow-[0_0_20px_rgba(57,255,20,0.08)]'
-                      : 'bg-blue-900/20 border-blue-500/30 shadow-[0_0_20px_rgba(59,130,246,0.08)]'
+                      ? 'bg-cyan-500/10 border-cyan-500/30 shadow-[0_0_20px_rgba(6,182,212,0.08)]'
+                      : 'bg-sky-900/20 border-sky-500/30 shadow-[0_0_20px_rgba(14,165,233,0.08)]'
                   }`}
                 >
                   <p

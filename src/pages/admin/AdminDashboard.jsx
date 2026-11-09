@@ -133,9 +133,9 @@ export default function AdminDashboard() {
 
   const STAT_CARDS = [
     { label: 'Ingresos totales', value: formatPrice(totalRevenue), icon: TrendingUp, color: 'text-neon-green', bg: 'bg-neon-green/10 border-neon-green/30' },
-    { label: 'Órdenes aprobadas', value: approvedOrders.length, icon: CheckCircle2, color: 'text-green-400', bg: 'bg-green-500/10 border-green-500/30' },
+    { label: 'Órdenes aprobadas', value: approvedOrders.length, icon: CheckCircle2, color: 'text-cyan-400', bg: 'bg-cyan-500/10 border-cyan-500/30' },
     { label: 'Pendientes de pago', value: pendingOrders.length, icon: Clock, color: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/30' },
-    { label: 'Total órdenes', value: orders.length, icon: ShoppingBag, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/30' },
+    { label: 'Total órdenes', value: orders.length, icon: ShoppingBag, color: 'text-sky-400', bg: 'bg-sky-500/10 border-sky-500/30' },
   ];
 
   return (
@@ -291,7 +291,7 @@ export default function AdminDashboard() {
                         <span className="text-neon-green font-bold ml-1">{formatPrice(order.total)}</span> •
                         <span className="ml-1 capitalize">{order.paymentMethod === 'transfer' ? 'Transferencia bancaria' : 'Mercado Pago'}</span>
                         {(order.voucherUrl || order.voucherBase64) ? (
-                          <span className="ml-2 text-xs text-emerald-400 font-medium">· 📎 Comprobante adjunto</span>
+                          <span className="ml-2 text-xs text-cyan-400 font-medium">· 📎 Comprobante adjunto</span>
                         ) : (
                           <span className="ml-2 text-xs text-yellow-400/80">· Sin comprobante</span>
                         )}
@@ -346,7 +346,7 @@ export default function AdminDashboard() {
           <div>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-black text-white flex items-center gap-2">
-                <CheckCircle2 className="w-5 h-5 text-green-400" />
+                <CheckCircle2 className="w-5 h-5 text-cyan-400" />
                 ÓRDENES APROBADAS
               </h2>
               <span className="text-gray-400 text-xs">
@@ -395,7 +395,7 @@ export default function AdminDashboard() {
                             })()}
                             target="_blank"
                             rel="noreferrer"
-                            className="px-2.5 py-1 text-xs font-bold text-green-400 bg-green-500/15 hover:bg-green-500/25 border border-green-500/30 rounded-lg transition-colors"
+                            className="px-2.5 py-1 text-xs font-bold text-cyan-400 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 rounded-lg transition-colors"
                             title="Enviar link de descarga por WhatsApp"
                           >
                             📲 WhatsApp

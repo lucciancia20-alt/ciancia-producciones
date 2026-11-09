@@ -402,7 +402,7 @@ export default function AdminCoupons() {
                       className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors flex items-center gap-1.5 border ${
                         coupon.active
                           ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30 hover:bg-yellow-500/20'
-                          : 'bg-green-500/10 text-green-400 border-green-500/30 hover:bg-green-500/20'
+                          : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/20'
                       }`}
                     >
                       {isToggling ? (

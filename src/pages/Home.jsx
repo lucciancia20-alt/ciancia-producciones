@@ -434,7 +434,7 @@ export default function Home() {
           <h1 className="text-3xl sm:text-5xl font-black text-white mb-2 leading-[0.95] tracking-tight">
             CIANCIA
             <br />
-            <span className="text-neon-green" style={{ textShadow: '0 0 40px rgba(57,255,20,0.5)' }}>
+            <span className="text-cyan-400" style={{ textShadow: '0 0 40px rgba(6,182,212,0.5)' }}>
               PRODUCCIONES
             </span>
           </h1>
@@ -739,9 +739,9 @@ export default function Home() {
                                 </p>
                               </div>
                               <div className="flex items-center gap-2">
-                                <span className="text-neon-green font-black text-sm">{formatPrice(order.total)}</span>
+                                <span className="text-cyan-400 font-black text-sm">{formatPrice(order.total)}</span>
                                 {isApproved ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-green-500/20 text-green-400 border border-green-500/30">
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
                                     <CheckCircle2 className="w-3.5 h-3.5" /> Aprobado · Listo
                                   </span>
                                 ) : (

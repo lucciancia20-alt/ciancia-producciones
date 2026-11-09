@@ -953,7 +953,7 @@ export default function AdminAlbums() {
                 type="checkbox"
                 checked={enableFaceDetection}
                 onChange={e => setEnableFaceDetection(e.target.checked)}
-                className="w-4 h-4 accent-[#39FF14] rounded cursor-pointer"
+                className="w-4 h-4 accent-[#06b6d4] rounded cursor-pointer"
               />
               <ScanFace className={`w-4 h-4 ${enableFaceDetection ? 'text-neon-green' : 'text-gray-500'}`} />
               <span>Detectar rostros (solo caras visibles)</span>
@@ -1000,9 +1000,9 @@ export default function AdminAlbums() {
                     key={item.id}
                     className={`rounded-2xl border p-4 transition-all space-y-3 ${
                       isSelectedQueueCover
-                        ? 'bg-neon-green/10 border-2 border-neon-green shadow-lg shadow-neon-green/10'
+                        ? 'bg-cyan-500/10 border-2 border-cyan-500 shadow-lg shadow-cyan-500/10'
                         : item.status === 'done'
-                          ? 'bg-green-900/15 border-green-500/30'
+                          ? 'bg-cyan-900/15 border-cyan-500/30'
                           : item.status === 'error'
                             ? 'bg-red-900/15 border-red-500/30'
                             : 'bg-dark-700 border-dark-500'
@@ -1075,7 +1075,7 @@ export default function AdminAlbums() {
                       <div className="w-full h-1.5 rounded-full bg-dark-500 overflow-hidden">
                         <div
                           className={`h-full rounded-full transition-all duration-200 ${
-                            item.status === 'done' ? 'bg-green-400' : 'bg-neon-green'
+                            item.status === 'done' ? 'bg-cyan-400' : 'bg-cyan-500'
                           }`}
                           style={{ width: `${item.progress}%` }}
                         />
@@ -1140,12 +1140,12 @@ export default function AdminAlbums() {
                       )}
 
                       {item.status === 'done' && (
-                        <div className="text-xs text-green-400 flex items-center gap-1.5 font-medium">
+                        <div className="text-xs text-cyan-400 flex items-center gap-1.5 font-medium">
                           <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
                           <span>Subido correctamente</span>
                           {item.result?.publicId && (
                             <a href={item.result.url} target="_blank" rel="noreferrer"
-                              className="ml-2 text-blue-400 hover:underline" onClick={e => e.stopPropagation()}>
+                              className="ml-2 text-sky-400 hover:underline" onClick={e => e.stopPropagation()}>
                               Ver en Cloudinary ↗
                             </a>
                           )}
@@ -1320,7 +1320,7 @@ export default function AdminAlbums() {
               {uploadSummary && !uploading && (
                 <div className={`rounded-lg p-4 border flex items-start gap-3 text-sm ${
                   uploadSummary.errors === 0
-                    ? 'bg-green-900/20 border-green-500/30 text-green-300'
+                    ? 'bg-cyan-900/20 border-cyan-500/30 text-cyan-300'
                     : 'bg-yellow-900/20 border-yellow-500/30 text-yellow-300'
                 }`}>
                   {uploadSummary.errors === 0
@@ -1356,7 +1356,7 @@ export default function AdminAlbums() {
                 <div key={album.id} className="card-dark border border-dark-500">
                   <div className="p-4 flex flex-wrap sm:flex-nowrap items-center gap-4">
                     <img
-                      src={currentAlbumCover || 'https://placehold.co/80x60/1a1a1a/39FF14?text=Auto+Portada'}
+                      src={currentAlbumCover || 'https://placehold.co/80x60/1a1a1a/06b6d4?text=Auto+Portada'}
                       alt={album.title}
                       className="w-16 h-12 object-cover rounded-lg flex-shrink-0 border border-dark-500"
                     />
@@ -1390,7 +1390,7 @@ export default function AdminAlbums() {
                         onClick={() => setLeadsModalAlbum(album)}
                         className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
                           pendingLeadsCount > 0
-                            ? 'bg-green-500/15 border-green-500/40 text-green-400 hover:bg-green-500/25'
+                            ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/25'
                             : 'bg-dark-700 border-dark-500 text-gray-200 hover:text-neon-green hover:border-neon-green/50'
                         }`}
                         title="Ver corredores pre-registrados y enviar avisos por WhatsApp"
@@ -1840,7 +1840,7 @@ export default function AdminAlbums() {
                     <p className="text-xs text-gray-400 mt-0.5">
                       {list.length} {list.length === 1 ? 'corredor registrado' : 'corredores registrados'} ·{' '}
                       <span className="text-yellow-300 font-semibold">{pendingList.length} pendiente{pendingList.length !== 1 ? 's' : ''}</span> ·{' '}
-                      <span className="text-green-400 font-semibold">{notifiedCount} avisado{notifiedCount !== 1 ? 's' : ''}</span>
+                      <span className="text-cyan-400 font-semibold">{notifiedCount} avisado{notifiedCount !== 1 ? 's' : ''}</span>
                     </p>
                   </div>
                 </div>
@@ -1917,7 +1917,7 @@ export default function AdminAlbums() {
                                 <span className="text-white font-bold text-xs">{lead.nombre}</span>
                               )}
                               {lead.notified ? (
-                                <span className="inline-flex items-center gap-1 text-[11px] text-green-400 font-semibold">
+                                <span className="inline-flex items-center gap-1 text-[11px] text-cyan-400 font-semibold">
                                   <CheckCircle2 className="w-3 h-3" /> Avisado
                                 </span>
                               ) : (
@@ -1939,7 +1939,7 @@ export default function AdminAlbums() {
                               target="_blank"
                               rel="noreferrer"
                               onClick={() => markLeadNotified(leadsModalAlbum.id, lead.id, true)}
-                              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-green-500/20 hover:bg-green-500/30 text-green-300 border border-green-500/40 transition-colors inline-flex items-center gap-1.5"
+                              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 transition-colors inline-flex items-center gap-1.5"
                             >
                               <span>📲 Enviar WhatsApp</span>
                             </a>

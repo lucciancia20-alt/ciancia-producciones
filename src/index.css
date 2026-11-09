@@ -21,25 +21,25 @@
     @apply bg-dark-500 rounded-full;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #39FF14;
+    background: #06b6d4;
   }
 }
 
 @layer components {
   .btn-neon {
-    @apply bg-neon-green text-black font-bold px-6 py-3 rounded-lg transition-all duration-200 hover:shadow-neon active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply bg-cyan-500 hover:bg-cyan-400 text-black font-bold px-6 py-3 rounded-lg transition-all duration-200 hover:shadow-neon active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .btn-outline-neon {
-    @apply border border-neon-green text-neon-green font-semibold px-6 py-3 rounded-lg transition-all duration-200 hover:bg-neon-green hover:text-black active:scale-95;
+    @apply border border-cyan-500 text-cyan-400 font-semibold px-6 py-3 rounded-lg transition-all duration-200 hover:bg-cyan-500 hover:text-black active:scale-95;
   }
   .card-dark {
     @apply bg-dark-700 border border-dark-500 rounded-xl overflow-hidden transition-all duration-300;
   }
   .input-dark {
-    @apply bg-dark-600 border border-dark-500 text-white placeholder-gray-500 rounded-lg px-4 py-3 w-full focus:outline-none focus:border-neon-green focus:ring-1 focus:ring-neon-green transition-colors;
+    @apply bg-dark-600 border border-dark-500 text-white placeholder-gray-500 rounded-lg px-4 py-3 w-full focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-colors;
   }
   .badge-neon {
-    @apply bg-neon-green text-black text-xs font-bold px-2 py-0.5 rounded-full;
+    @apply bg-cyan-500 text-black text-xs font-bold px-2 py-0.5 rounded-full;
   }
 }
 
@@ -60,7 +60,7 @@
   transform: translate(-50%, -50%) rotate(-30deg);
   font-size: 1.5rem;
   font-weight: 900;
-  color: rgba(57, 255, 20, 0.3);
+  color: rgba(6, 182, 212, 0.3);
   pointer-events: none;
   white-space: nowrap;
   letter-spacing: 0.2em;

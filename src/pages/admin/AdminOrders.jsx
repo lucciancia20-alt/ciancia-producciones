@@ -39,8 +39,8 @@ function formatDate(ts) {
 
 const STATUS_CONFIG = {
   pending: { label: 'Pendiente', color: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30', icon: Clock },
-  pending_mp: { label: 'MP Pendiente', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30', icon: Clock },
-  approved: { label: 'Aprobado', color: 'bg-green-500/20 text-green-400 border-green-500/30', icon: CheckCircle2 },
+  pending_mp: { label: 'MP Pendiente', color: 'bg-sky-500/20 text-sky-400 border-sky-500/30', icon: Clock },
+  approved: { label: 'Aprobado', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30', icon: CheckCircle2 },
   rejected: { label: 'Rechazado', color: 'bg-red-500/20 text-red-400 border-red-500/30', icon: XCircle },
 };
 
@@ -297,7 +297,7 @@ export default function AdminOrders() {
                           {order.paymentMethod === 'transfer' ? 'Transferencia bancaria' : 'Mercado Pago'}
                         </span>
                         {(order.voucherUrl || order.voucherBase64) ? (
-                          <span className="text-[11px] text-emerald-400 font-medium">📎 Comprobante adjunto</span>
+                          <span className="text-[11px] text-cyan-400 font-medium">📎 Comprobante adjunto</span>
                         ) : (
                           <span className="text-[11px] text-yellow-400/80">Sin comprobante</span>
                         )}
@@ -332,7 +332,7 @@ export default function AdminOrders() {
                             href={buildWhatsAppOrderUrl(order)}
                             target="_blank"
                             rel="noreferrer"
-                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold bg-green-500/15 hover:bg-green-500/25 text-green-400 border border-green-500/30 transition-colors"
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 transition-colors"
                             title="Enviar link directo de descarga por WhatsApp"
                           >
                             <MessageCircle className="w-4 h-4" />
@@ -488,7 +488,7 @@ export default function AdminOrders() {
                     href={buildWhatsAppOrderUrl(selectedOrder)}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-xs font-bold bg-green-500/20 hover:bg-green-500/30 text-green-400 border border-green-500/40 transition-colors"
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-xs font-bold bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 transition-colors"
                   >
                     <MessageCircle className="w-4 h-4" />
                     Avisar por WhatsApp
