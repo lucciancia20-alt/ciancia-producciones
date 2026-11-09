@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Camera, ChevronRight, MapPin, Calendar, Image as ImageIcon } from 'lucide-react';
 import { collection, query, where, limit, getDocs } from 'firebase/firestore';
 import { db } from '../firebase/config';
+import { getHighResDownloadUrl } from '../services/cloudinary';
 
 function formatDate(ts) {
   if (!ts) return '';
@@ -36,7 +37,7 @@ export default function AlbumCard({ album }) {
           const snap = await getDocs(q);
           if (!snap.empty && isMounted) {
             const first = snap.docs[0].data();
-            const photoUrl = first.thumb || first.url;
+            const photoUrl = first.url || first.thumb;
             if (photoUrl) {
               setCover(photoUrl);
             }
@@ -58,7 +59,7 @@ export default function AlbumCard({ album }) {
       {/* ── Imagen de portada de fondo con degradado profesional ── */}
       {cover && !imgError ? (
         <img
-          src={cover}
+          src={getHighResDownloadUrl(cover)}
           alt=""
           role="presentation"
           onError={() => setImgError(true)}

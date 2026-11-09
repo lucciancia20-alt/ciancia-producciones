@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import MediaCard from '../components/MediaCard';
 import MagnifierViewer from '../components/MagnifierViewer';
+import { getHighResDownloadUrl } from '../services/cloudinary';
 import { VISUAL_COLOR_PALETTE, VISUAL_COLOR_MAP, normalizeColorList } from '../constants/visualColors';
 import {
   Search, ArrowLeft, Camera, Video, Filter, X, ScanFace,
@@ -300,7 +301,14 @@ export default function AlbumDetail() {
     );
   }
 
-  const heroCover = album.coverUrl || album.cover || album.coverImage || (media.length > 0 ? (media[0].thumb || media[0].url) : null);
+  const rawHeroCover =
+    album.coverUrl ||
+    album.cover ||
+    album.coverImage ||
+    (media.length > 0 ? (media[0].url || media[0].thumb) : null);
+
+  // Aseguramos que el banner superior cargue siempre la versión original/alta calidad (q_auto:best) sin reducción low-res
+  const heroCover = rawHeroCover ? getHighResDownloadUrl(rawHeroCover) : null;
 
   return (
     <div className="min-h-screen pt-16">
