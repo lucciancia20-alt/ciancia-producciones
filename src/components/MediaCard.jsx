@@ -18,6 +18,7 @@ export default function MediaCard({
   media,
   onView,
   onDelete,
+  onUpdatePrice,
   albumLogoUrl = '',
   albumLogoPublicId = '',
   albumBasePrice,
@@ -31,9 +32,27 @@ export default function MediaCard({
   const isVideo   = media.type === 'video';
   const defaultAlbumPrice = Number(albumBasePrice) || (isVideo ? 3000 : 2000);
   const itemPrice = Number(media.price) || defaultAlbumPrice;
+  const suggestedIndividualPrice = Math.round(defaultAlbumPrice * 1.5);
   const isIndividualFeatured = Boolean(media.isIndividual || itemPrice > defaultAlbumPrice);
+  const [priceDraft, setPriceDraft]    = useState(itemPrice);
+  const [priceSavedFlash, setPriceSavedFlash] = useState(false);
   const resolvedLogoUrl = media.eventLogoUrl || albumLogoUrl || '';
   const resolvedLogoPublicId = media.eventLogoPublicId || albumLogoPublicId || '';
+
+  useEffect(() => {
+    setPriceDraft(Number(media.price) || defaultAlbumPrice);
+  }, [media.price, defaultAlbumPrice]);
+
+  const handleSaveCustomPrice = (nextVal, isIndividualOverride) => {
+    if (!onUpdatePrice) return;
+    const num = Number(nextVal);
+    if (!Number.isFinite(num) || num < 0) return;
+    const isInd = typeof isIndividualOverride === 'boolean' ? isIndividualOverride : num > defaultAlbumPrice;
+    onUpdatePrice(media, num, isInd);
+    setPriceDraft(num);
+    setPriceSavedFlash(true);
+    setTimeout(() => setPriceSavedFlash(false), 1600);
+  };
 
   const handleCart = (e) => {
     e.stopPropagation();
@@ -222,6 +241,71 @@ export default function MediaCard({
           </button>
         </div>
       </div>
+
+      {/* ── Controles rápidos Admin: Precio individual y Toma Exclusiva (+50%) ── */}
+      {onUpdatePrice && (
+        <div
+          className="px-3 pb-2.5 pt-2 border-t border-dark-600/80 bg-dark-900/60 flex flex-wrap items-center justify-between gap-1.5"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              const nextPrice = isIndividualFeatured ? defaultAlbumPrice : suggestedIndividualPrice;
+              handleSaveCustomPrice(nextPrice, !isIndividualFeatured);
+            }}
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-black border transition-all ${
+              isIndividualFeatured
+                ? 'bg-amber-400 text-black border-amber-300 shadow-sm'
+                : 'bg-amber-500/15 hover:bg-amber-400 text-amber-300 hover:text-black border-amber-500/40'
+            }`}
+            title={
+              isIndividualFeatured
+                ? `Quitar recargo individual y volver a $${defaultAlbumPrice.toLocaleString('es-AR')}`
+                : `Aplicar +50% Foto Individual ($${suggestedIndividualPrice.toLocaleString('es-AR')})`
+            }
+          >
+            <span>{isIndividualFeatured ? '⭐ Individual activa' : '⭐ +50% Individual'}</span>
+          </button>
+
+          <div className="inline-flex items-center gap-1">
+            <span className="text-[10px] text-gray-400 font-bold">$</span>
+            <input
+              type="number"
+              min="0"
+              step="100"
+              value={priceDraft}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => setPriceDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleSaveCustomPrice(priceDraft);
+                }
+              }}
+              className="w-16 bg-dark-800 border border-cyan-500/50 focus:border-cyan-400 rounded-md px-1.5 py-0.5 text-[11px] text-white font-bold focus:outline-none"
+              title="Editar precio individual de esta foto"
+            />
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSaveCustomPrice(priceDraft);
+              }}
+              className={`px-1.5 py-0.5 rounded-md text-[10px] font-black border transition-colors ${
+                priceSavedFlash
+                  ? 'bg-emerald-500 text-black border-emerald-400'
+                  : 'bg-cyan-500/20 hover:bg-cyan-500 text-cyan-300 hover:text-black border-cyan-500/50'
+              }`}
+              title="Guardar precio personalizado"
+            >
+              {priceSavedFlash ? '✓' : 'OK'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

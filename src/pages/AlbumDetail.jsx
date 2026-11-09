@@ -223,6 +223,31 @@ export default function AlbumDetail() {
     [media]
   );
 
+  const handleQuickUpdateMediaPrice = async (mediaItem, nextPrice, isIndividual = false) => {
+    const cleanPrice = Number(nextPrice);
+    if (!mediaItem?.id || !Number.isFinite(cleanPrice) || cleanPrice < 0) return;
+    const basePrice = mediaItem.type === 'video'
+      ? (Number(album?.priceVideo) || 3000)
+      : (Number(album?.pricePhoto) || 2000);
+    const individualFlag = Boolean(isIndividual || cleanPrice > basePrice);
+
+    // Actualización optimista inmediata en la vista del álbum
+    setMedia(prev => prev.map(m =>
+      m.id === mediaItem.id
+        ? { ...m, price: cleanPrice, isIndividual: individualFlag }
+        : m
+    ));
+
+    try {
+      await updateDoc(doc(db, 'media', mediaItem.id), {
+        price: cleanPrice,
+        isIndividual: individualFlag,
+      });
+    } catch (err) {
+      alert('Error al actualizar precio: ' + err.message);
+    }
+  };
+
   const handleConfirmDelete = async () => {
     if (!confirmDeleteMedia) return;
     setDeletingMedia(true);
@@ -289,10 +314,10 @@ export default function AlbumDetail() {
 
       {/* Controls */}
       <div className="max-w-7xl mx-auto px-4 py-7 space-y-3">
-        {/* Fila 1: Los 4 controles principales con exactamente el mismo ancho (1/4), altura (h-11) y borde turquesa */}
+        {/* Fila 1: Los 4 controles principales con exactamente el mismo ancho (1/4), altura (h-11), padding (px-4), esquinas (rounded-xl) y borde (border-cyan-500/60) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {/* 1. Dorsal search — mismo contenedor flex, altura h-11 y borde que los botones */}
-          <div className="h-11 w-full inline-flex items-center gap-2.5 px-4 rounded-xl bg-dark-800 border border-cyan-400/70 hover:border-cyan-400 focus-within:border-cyan-400 focus-within:ring-1 focus-within:ring-cyan-400 transition-all shadow-sm">
+          <div className="h-11 w-full inline-flex items-center gap-2.5 px-4 rounded-xl bg-dark-800 border border-cyan-500/60 hover:border-cyan-400 focus-within:border-cyan-400 focus-within:ring-1 focus-within:ring-cyan-400 transition-all shadow-sm">
             <Search className="w-4 h-4 flex-shrink-0 text-cyan-400 pointer-events-none" />
             <input
               type="text"
@@ -325,7 +350,7 @@ export default function AlbumDetail() {
             className={`h-11 w-full inline-flex items-center justify-center gap-2 px-4 rounded-xl text-sm font-bold leading-none whitespace-nowrap border transition-all shadow-sm ${
               visualFilterOpen || hasVisualFilter
                 ? 'bg-cyan-500 text-black border-cyan-400 shadow-lg shadow-cyan-500/20'
-                : 'bg-dark-800 border-cyan-400/70 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400'
+                : 'bg-dark-800 border-cyan-500/60 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400'
             }`}
           >
             <span className="leading-none truncate">🚴 Buscar por Casco / Bici / Ropa</span>
@@ -344,7 +369,7 @@ export default function AlbumDetail() {
             type="button"
             onClick={() => setSelfieModalOpen(true)}
             title="Buscar mis fotos con una selfie"
-            className="h-11 w-full inline-flex items-center justify-center gap-2 px-4 rounded-xl text-sm font-bold leading-none whitespace-nowrap bg-dark-800 border border-cyan-400/70 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 transition-all shadow-sm"
+            className="h-11 w-full inline-flex items-center justify-center gap-2 px-4 rounded-xl text-sm font-bold leading-none whitespace-nowrap bg-dark-800 border border-cyan-500/60 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 transition-all shadow-sm"
           >
             <ScanFace className="w-4 h-4 flex-shrink-0 text-cyan-400" />
             <span className="leading-none truncate">Buscarme con Selfie 🤳</span>
@@ -354,7 +379,7 @@ export default function AlbumDetail() {
           <button
             type="button"
             onClick={openLeadModal}
-            className="h-11 w-full inline-flex items-center justify-center gap-2 px-4 rounded-xl text-sm font-bold leading-none whitespace-nowrap bg-dark-800 border border-cyan-400/70 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 transition-all shadow-sm"
+            className="h-11 w-full inline-flex items-center justify-center gap-2 px-4 rounded-xl text-sm font-bold leading-none whitespace-nowrap bg-dark-800 border border-cyan-500/60 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 transition-all shadow-sm"
           >
             <Bell className="w-4 h-4 flex-shrink-0 text-cyan-400" />
             <span className="leading-none truncate">🔔 Avisame cuando suban mis fotos</span>
@@ -587,6 +612,7 @@ export default function AlbumDetail() {
                 media={item}
                 onView={setViewingMedia}
                 onDelete={user ? setConfirmDeleteMedia : undefined}
+                onUpdatePrice={user ? handleQuickUpdateMediaPrice : undefined}
                 albumLogoUrl={album?.eventLogoUrl || ''}
                 albumLogoPublicId={album?.eventLogoPublicId || ''}
                 albumBasePrice={

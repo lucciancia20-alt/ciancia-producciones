@@ -843,6 +843,8 @@ export default function AdminAlbums() {
       jerseyColors:    [],
       hasVisibleFace:  true,
       faceSkipped:     false,
+      customPrice:     '',
+      isIndividual:    false,
       status:          'idle',
       progress:        0,
       error:           null,
@@ -961,7 +963,14 @@ export default function AdminAlbums() {
 
         const albumPhotoPrice = Number(album?.pricePhoto) || 2000;
         const albumVideoPrice = Number(album?.priceVideo) || 3000;
-        const finalPrice = isVideo ? albumVideoPrice : albumPhotoPrice;
+        const baseItemPrice = isVideo ? albumVideoPrice : albumPhotoPrice;
+        const parsedCustomPrice = item.customPrice !== '' && item.customPrice !== null && item.customPrice !== undefined
+          ? Number(item.customPrice)
+          : NaN;
+        const finalPrice = Number.isFinite(parsedCustomPrice) && parsedCustomPrice > 0
+          ? parsedCustomPrice
+          : baseItemPrice;
+        const finalIsIndividual = Boolean(item.isIndividual || finalPrice > baseItemPrice);
 
         // 2) Guardado en Firestore (incluyendo dorsales, atributos visuales y referencia al logo del evento)
         await addDoc(collection(db, 'media'), {
@@ -989,6 +998,7 @@ export default function AdminAlbums() {
           albumSlug:    album?.slug  || '',
           albumTitle:   album?.title || '',
           price:        finalPrice,
+          isIndividual: finalIsIndividual,
           approved:     true,
           createdAt:    Timestamp.now(),
         });
@@ -1513,6 +1523,76 @@ export default function AdminAlbums() {
                           </button>
                         )}
                       </div>
+
+                      {/* Fila 3.5: Precio Individual de la foto + acceso rápido ⭐ Foto Individual +50% */}
+                      {(() => {
+                        const baseQueuePrice = isVideo
+                          ? (Number(targetAlbum?.priceVideo) || 3000)
+                          : (Number(targetAlbum?.pricePhoto) || 2000);
+                        const suggestedIndPrice = Math.round(baseQueuePrice * 1.5);
+                        const currentPriceVal = item.customPrice !== '' && item.customPrice !== undefined
+                          ? item.customPrice
+                          : baseQueuePrice;
+                        const isIndActive = Boolean(item.isIndividual || Number(currentPriceVal) > baseQueuePrice);
+
+                        return (
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                            <div className="inline-flex items-center gap-1.5 bg-dark-800 border border-cyan-500/40 rounded-xl px-2.5 py-1.5">
+                              <span className="text-[11px] text-cyan-300 font-bold">💲 Precio individual: $</span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="100"
+                                value={currentPriceVal}
+                                disabled={item.status === 'uploading' || item.status === 'done'}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  patchFile(item.id, {
+                                    customPrice: val,
+                                    isIndividual: Number(val) > baseQueuePrice,
+                                  });
+                                }}
+                                className="w-20 bg-dark-700 border border-dark-500 focus:border-cyan-400 rounded-lg px-2 py-0.5 text-xs text-white font-bold focus:outline-none"
+                              />
+                              {isIndActive && (
+                                <button
+                                  type="button"
+                                  onClick={() => patchFile(item.id, { customPrice: baseQueuePrice, isIndividual: false })}
+                                  className="text-[10px] font-bold text-gray-400 hover:text-white px-1.5 py-0.5 rounded bg-dark-700"
+                                  title="Restaurar al precio base del álbum"
+                                >
+                                  Base (${baseQueuePrice.toLocaleString('es-AR')})
+                                </button>
+                              )}
+                            </div>
+
+                            {!isVideo && (
+                              <button
+                                type="button"
+                                disabled={item.status === 'uploading' || item.status === 'done'}
+                                onClick={() => {
+                                  const nextPrice = isIndActive ? baseQueuePrice : suggestedIndPrice;
+                                  patchFile(item.id, {
+                                    customPrice: nextPrice,
+                                    isIndividual: !isIndActive,
+                                  });
+                                }}
+                                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black border transition-all ${
+                                  isIndActive
+                                    ? 'bg-amber-400 text-black border-amber-300 shadow-sm'
+                                    : 'bg-amber-500/15 hover:bg-amber-400 text-amber-300 hover:text-black border-amber-500/40'
+                                }`}
+                              >
+                                <span>
+                                  {isIndActive
+                                    ? `⭐ Toma Individual activa ($${Number(currentPriceVal).toLocaleString('es-AR')})`
+                                    : `⭐ Foto Individual +50% ($${suggestedIndPrice.toLocaleString('es-AR')})`}
+                                </span>
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       {/* Resumen rápido de chips de colores detectados/seleccionados */}
                       {!isVideo && totalColorsCount > 0 && !isColorPanelOpen && (
