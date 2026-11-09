@@ -288,11 +288,12 @@ export default function AlbumDetail() {
       </div>
 
       {/* Controls */}
-      <div className="max-w-7xl mx-auto px-4 py-7">
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* 1. Dorsal search — h-11 exacto e idéntico a los botones */}
-          <div className="relative flex-1 min-w-[220px] sm:min-w-[240px] h-11">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-cyan-400 pointer-events-none" />
+      <div className="max-w-7xl mx-auto px-4 py-7 space-y-3">
+        {/* Fila 1: Los 4 controles principales con exactamente el mismo ancho (1/4), altura (h-11) y borde turquesa */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* 1. Dorsal search — mismo contenedor flex, altura h-11 y borde que los botones */}
+          <div className="h-11 w-full inline-flex items-center gap-2.5 px-4 rounded-xl bg-dark-800 border border-cyan-400/70 hover:border-cyan-400 focus-within:border-cyan-400 focus-within:ring-1 focus-within:ring-cyan-400 transition-all shadow-sm">
+            <Search className="w-4 h-4 flex-shrink-0 text-cyan-400 pointer-events-none" />
             <input
               type="text"
               inputMode="numeric"
@@ -304,13 +305,13 @@ export default function AlbumDetail() {
               placeholder="Nº de dorsal / pechera..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full h-11 bg-dark-800 border border-cyan-500/60 hover:border-cyan-400 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 text-white placeholder-gray-300 rounded-xl pl-10 pr-8 py-0 text-sm font-semibold leading-none focus:outline-none transition-all shadow-sm"
+              className="w-full h-full bg-transparent border-0 p-0 text-sm font-bold text-white placeholder-cyan-300 leading-none focus:outline-none focus:ring-0"
             />
             {search && (
               <button
                 type="button"
                 onClick={() => setSearch('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white flex items-center justify-center"
+                className="text-gray-400 hover:text-white flex items-center justify-center flex-shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -321,15 +322,15 @@ export default function AlbumDetail() {
           <button
             type="button"
             onClick={() => setVisualFilterOpen(prev => !prev)}
-            className={`h-11 inline-flex items-center justify-center gap-2 px-4 rounded-xl text-sm font-bold leading-none whitespace-nowrap border transition-all shadow-sm ${
+            className={`h-11 w-full inline-flex items-center justify-center gap-2 px-4 rounded-xl text-sm font-bold leading-none whitespace-nowrap border transition-all shadow-sm ${
               visualFilterOpen || hasVisualFilter
                 ? 'bg-cyan-500 text-black border-cyan-400 shadow-lg shadow-cyan-500/20'
-                : 'bg-dark-800 border-cyan-500/60 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400'
+                : 'bg-dark-800 border-cyan-400/70 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400'
             }`}
           >
-            <span className="leading-none">🚴 Buscar por Casco / Bici / Ropa</span>
+            <span className="leading-none truncate">🚴 Buscar por Casco / Bici / Ropa</span>
             {activeVisualCount > 0 && (
-              <span className={`px-1.5 py-0.5 rounded-full text-xs font-black leading-none ${
+              <span className={`px-1.5 py-0.5 rounded-full text-xs font-black leading-none flex-shrink-0 ${
                 visualFilterOpen || hasVisualFilter ? 'bg-black text-cyan-400' : 'bg-cyan-500 text-black'
               }`}>
                 {activeVisualCount}
@@ -342,46 +343,45 @@ export default function AlbumDetail() {
           <button
             type="button"
             onClick={() => setSelfieModalOpen(true)}
-            disabled={photosWithFaces.length === 0}
-            title={photosWithFaces.length === 0 ? 'Este álbum aún no tiene rostros indexados por IA' : 'Buscar mis fotos con una selfie'}
-            className="h-11 inline-flex items-center justify-center gap-2 px-4 rounded-xl text-sm font-bold leading-none whitespace-nowrap bg-dark-800 border border-cyan-500/60 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 transition-all shadow-sm disabled:opacity-75 disabled:cursor-not-allowed disabled:hover:bg-dark-800 disabled:hover:text-cyan-300"
+            title="Buscar mis fotos con una selfie"
+            className="h-11 w-full inline-flex items-center justify-center gap-2 px-4 rounded-xl text-sm font-bold leading-none whitespace-nowrap bg-dark-800 border border-cyan-400/70 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 transition-all shadow-sm"
           >
             <ScanFace className="w-4 h-4 flex-shrink-0 text-cyan-400" />
-            <span className="leading-none">Buscarme con Selfie 🤳</span>
+            <span className="leading-none truncate">Buscarme con Selfie 🤳</span>
           </button>
 
           {/* 4. Botón Pre-registro (Lead Capture): Avisame cuando suban mis fotos */}
           <button
             type="button"
             onClick={openLeadModal}
-            className="h-11 inline-flex items-center justify-center gap-2 px-4 rounded-xl text-sm font-bold leading-none whitespace-nowrap bg-dark-800 border border-cyan-500/60 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 transition-all shadow-sm"
+            className="h-11 w-full inline-flex items-center justify-center gap-2 px-4 rounded-xl text-sm font-bold leading-none whitespace-nowrap bg-dark-800 border border-cyan-400/70 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 transition-all shadow-sm"
           >
             <Bell className="w-4 h-4 flex-shrink-0 text-cyan-400" />
-            <span className="leading-none">🔔 Avisame cuando suban mis fotos</span>
+            <span className="leading-none truncate">🔔 Avisame cuando suban mis fotos</span>
           </button>
+        </div>
 
-          {/* 5. Type filter (Todo / Fotos / Videos) */}
-          <div className="flex items-center gap-2">
-            {[
-              { key: 'all', label: 'Todo', icon: Filter },
-              { key: 'photo', label: 'Fotos', icon: Camera },
-              { key: 'video', label: 'Videos', icon: Video },
-            ].map(({ key, label, icon: Icon }) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setFilterType(key)}
-                className={`h-11 inline-flex items-center justify-center gap-2 px-4 rounded-xl text-sm font-bold leading-none whitespace-nowrap border transition-all shadow-sm ${
-                  filterType === key
-                    ? 'bg-cyan-500 text-black border-cyan-400 shadow-sm shadow-cyan-500/20'
-                    : 'bg-dark-800 text-cyan-300 hover:bg-cyan-500/15 hover:text-white border-cyan-500/60 hover:border-cyan-400'
-                }`}
-              >
-                <Icon className="w-4 h-4 flex-shrink-0" />
-                <span className="leading-none">{label}</span>
-              </button>
-            ))}
-          </div>
+        {/* Fila 2: Filtros de tipo (Todo / Fotos / Videos) */}
+        <div className="flex items-center gap-2.5">
+          {[
+            { key: 'all', label: 'Todo', icon: Filter },
+            { key: 'photo', label: 'Fotos', icon: Camera },
+            { key: 'video', label: 'Videos', icon: Video },
+          ].map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setFilterType(key)}
+              className={`h-10 inline-flex items-center justify-center gap-2 px-4 rounded-xl text-sm font-bold leading-none whitespace-nowrap border transition-all shadow-sm ${
+                filterType === key
+                  ? 'bg-cyan-500 text-black border-cyan-400 shadow-sm shadow-cyan-500/20'
+                  : 'bg-dark-800 text-cyan-300 hover:bg-cyan-500/15 hover:text-white border-cyan-400/70 hover:border-cyan-400'
+              }`}
+            >
+              <Icon className="w-4 h-4 flex-shrink-0" />
+              <span className="leading-none">{label}</span>
+            </button>
+          ))}
         </div>
 
         {/* Panel desplegable de Búsqueda por Atributos Visuales (Casco / Bicicleta / Remera-Maillot) */}
