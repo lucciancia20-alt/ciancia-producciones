@@ -1741,46 +1741,50 @@ export default function AdminAlbums() {
               const notifiedLeadsCount = leadsForAlbum.length - pendingLeadsCount;
               return (
                 <div key={album.id} className="card-dark border border-dark-500">
-                  <div className="p-4 flex flex-wrap sm:flex-nowrap items-center gap-4">
-                    <img
-                      src={currentAlbumCover || 'https://placehold.co/80x60/1a1a1a/06b6d4?text=Auto+Portada'}
-                      alt={album.title}
-                      className="w-16 h-12 object-cover rounded-lg flex-shrink-0 border border-dark-500"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-bold text-white truncate">{album.title}</h3>
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border ${
-                          pendingLeadsCount > 0
-                            ? 'bg-neon-green/15 border-neon-green/40 text-neon-green'
-                            : leadsForAlbum.length > 0
-                              ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300'
-                              : 'bg-dark-700 border-dark-600 text-gray-400'
-                        }`}>
-                          <Bell className="w-3 h-3" />
-                          <span>
-                            {pendingLeadsCount > 0
-                              ? `${pendingLeadsCount} ${pendingLeadsCount === 1 ? 'corredor esperando aviso' : 'corredores esperando aviso'}${notifiedLeadsCount > 0 ? ` · ${notifiedLeadsCount} avisado${notifiedLeadsCount !== 1 ? 's' : ''}` : ''}`
+                  <div className="p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                      <img
+                        src={currentAlbumCover || 'https://placehold.co/80x60/1a1a1a/06b6d4?text=Auto+Portada'}
+                        alt={album.title}
+                        className="w-16 h-12 object-cover rounded-lg flex-shrink-0 border border-dark-500"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="font-bold text-white truncate">{album.title}</h3>
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border ${
+                            pendingLeadsCount > 0
+                              ? 'bg-neon-green/15 border-neon-green/40 text-neon-green'
                               : leadsForAlbum.length > 0
-                                ? `0 pendientes · ${notifiedLeadsCount} avisado${notifiedLeadsCount !== 1 ? 's' : ''}`
-                                : '0 corredores esperando aviso'}
+                                ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300'
+                                : 'bg-dark-700 border-dark-600 text-gray-400'
+                          }`}>
+                            <Bell className="w-3 h-3 flex-shrink-0" />
+                            <span>
+                              {pendingLeadsCount > 0
+                                ? `${pendingLeadsCount} ${pendingLeadsCount === 1 ? 'corredor esperando aviso' : 'corredores esperando aviso'}${notifiedLeadsCount > 0 ? ` · ${notifiedLeadsCount} avisado${notifiedLeadsCount !== 1 ? 's' : ''}` : ''}`
+                                : leadsForAlbum.length > 0
+                                  ? `0 pendientes · ${notifiedLeadsCount} avisado${notifiedLeadsCount !== 1 ? 's' : ''}`
+                                  : '0 corredores esperando aviso'}
+                            </span>
                           </span>
-                        </span>
-                        {album.eventLogoUrl && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-cyan-500/15 border border-cyan-500/40 text-cyan-300">
-                            <span>🖼️ Logo Marca de Agua</span>
-                          </span>
-                        )}
+                          {album.eventLogoUrl && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-cyan-500/15 border border-cyan-500/40 text-cyan-300">
+                              <span>🖼️ Logo Marca de Agua</span>
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-gray-400 text-xs mt-0.5">{album.category} · {album.location} · {album.totalMedia || 0} archivos</p>
                       </div>
-                      <p className="text-gray-400 text-xs mt-0.5">{album.category} · {album.location} · {album.totalMedia || 0} archivos</p>
                     </div>
-                    <div className="flex items-center flex-wrap gap-2">
+
+                    <div className="flex items-center flex-wrap gap-2 lg:justify-end flex-shrink-0">
                       <Link
                         to={`/album/${album.id}`}
-                        className="p-2 text-gray-400 hover:text-neon-green transition-colors"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-cyan-300 bg-cyan-500/10 border border-cyan-500/40 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 transition-all whitespace-nowrap shadow-sm"
                         title="Ver álbum en la tienda"
                       >
-                        <Eye className="w-4 h-4" />
+                        <Eye className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>Ver álbum en tienda</span>
                       </Link>
 
                       <button
