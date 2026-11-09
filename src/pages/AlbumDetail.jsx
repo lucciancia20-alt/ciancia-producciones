@@ -278,10 +278,10 @@ export default function AlbumDetail() {
 
       {/* Controls */}
       <div className="max-w-7xl mx-auto px-4 py-7">
-        <div className="flex flex-col lg:flex-row gap-3">
-          {/* Dorsal search */}
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Dorsal search — ancho mínimo garantizado para que nunca se corte el placeholder */}
+          <div className="relative flex-1 min-w-[220px] sm:min-w-[240px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-cyan-400 pointer-events-none" />
             <input
               type="text"
               inputMode="numeric"
@@ -290,82 +290,86 @@ export default function AlbumDetail() {
               spellCheck="false"
               data-lpignore="true"
               data-form-type="other"
-              placeholder="Buscá por número de dorsal / pechera..."
+              placeholder="Nº de dorsal / pechera..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="input-dark pl-10 text-base font-mono"
+              className="w-full bg-dark-800 border border-cyan-500/50 hover:border-cyan-400 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 text-white placeholder-gray-300 rounded-lg pl-9 pr-8 py-2.5 text-sm font-mono focus:outline-none transition-all shadow-sm"
             />
             {search && (
-              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white">
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+              >
                 <X className="w-4 h-4" />
               </button>
             )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
-            {/* Botón desplegable: Buscar por Casco / Bici / Ropa */}
-            <button
-              type="button"
-              onClick={() => setVisualFilterOpen(prev => !prev)}
-              className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold whitespace-nowrap border transition-all ${
-                visualFilterOpen || hasVisualFilter
-                  ? 'bg-neon-green text-black border-neon-green shadow-lg shadow-neon-green/20'
-                  : 'bg-dark-800 border-neon-green/50 text-neon-green hover:bg-neon-green hover:text-black'
-              }`}
-            >
-              <span>🚴 Buscar por Casco / Bici / Ropa</span>
-              {activeVisualCount > 0 && (
-                <span className={`px-1.5 py-0.5 rounded-full text-xs font-black ${
-                  visualFilterOpen || hasVisualFilter ? 'bg-black text-neon-green' : 'bg-neon-green text-black'
-                }`}>
-                  {activeVisualCount}
-                </span>
-              )}
-              {visualFilterOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            </button>
+          {/* Botón desplegable: Buscar por Casco / Bici / Ropa */}
+          <button
+            type="button"
+            onClick={() => setVisualFilterOpen(prev => !prev)}
+            className={`flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap border transition-all ${
+              visualFilterOpen || hasVisualFilter
+                ? 'bg-cyan-500 text-black border-cyan-400 shadow-lg shadow-cyan-500/20'
+                : 'bg-dark-800 border-cyan-500/50 text-cyan-400 hover:bg-cyan-500 hover:text-black hover:border-cyan-400'
+            }`}
+          >
+            <span>🚴 Buscar por Casco / Bici / Ropa</span>
+            {activeVisualCount > 0 && (
+              <span className={`px-1.5 py-0.5 rounded-full text-xs font-black ${
+                visualFilterOpen || hasVisualFilter ? 'bg-black text-cyan-400' : 'bg-cyan-500 text-black'
+              }`}>
+                {activeVisualCount}
+              </span>
+            )}
+            {visualFilterOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
 
-            {/* Selfie search */}
-            <button
-              onClick={() => setSelfieModalOpen(true)}
-              disabled={photosWithFaces.length === 0}
-              title={photosWithFaces.length === 0 ? 'Este álbum aún no tiene rostros indexados por IA' : 'Buscar mis fotos con una selfie'}
-              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold whitespace-nowrap border border-neon-green/50 text-neon-green hover:bg-neon-green hover:text-black transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-neon-green"
-            >
-              <ScanFace className="w-4 h-4" />
-              Buscarme con Selfie 🤳
-            </button>
+          {/* Selfie search */}
+          <button
+            type="button"
+            onClick={() => setSelfieModalOpen(true)}
+            disabled={photosWithFaces.length === 0}
+            title={photosWithFaces.length === 0 ? 'Este álbum aún no tiene rostros indexados por IA' : 'Buscar mis fotos con una selfie'}
+            className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap bg-dark-800 border border-cyan-500/50 text-cyan-400 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-dark-800 disabled:hover:text-cyan-400"
+          >
+            <ScanFace className="w-4 h-4" />
+            <span>Buscarme con Selfie 🤳</span>
+          </button>
 
-            {/* Botón Pre-registro (Lead Capture): Avisame cuando suban mis fotos */}
-            <button
-              type="button"
-              onClick={openLeadModal}
-              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold whitespace-nowrap bg-neon-green/15 border border-neon-green text-neon-green hover:bg-neon-green hover:text-black transition-all shadow-sm"
-            >
-              <Bell className="w-4 h-4" />
-              <span>🔔 Avisame cuando suban mis fotos</span>
-            </button>
+          {/* Botón Pre-registro (Lead Capture): Avisame cuando suban mis fotos */}
+          <button
+            type="button"
+            onClick={openLeadModal}
+            className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap bg-cyan-500/15 border border-cyan-500/60 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 transition-all shadow-sm"
+          >
+            <Bell className="w-4 h-4" />
+            <span>🔔 Avisame cuando suban mis fotos</span>
+          </button>
 
-            {/* Type filter */}
-            <div className="flex gap-2">
-              {[
-                { key: 'all', label: 'Todo', icon: Filter },
-                { key: 'photo', label: 'Fotos', icon: Camera },
-                { key: 'video', label: 'Videos', icon: Video },
-              ].map(({ key, label, icon: Icon }) => (
-                <button
-                  key={key}
-                  onClick={() => setFilterType(key)}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                    filterType === key
-                      ? 'bg-neon-green text-black'
-                      : 'bg-dark-700 text-gray-400 hover:text-white border border-dark-500'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  {label}
-                </button>
-              ))}
-            </div>
+          {/* Type filter (Todo / Fotos / Videos) */}
+          <div className="flex items-center gap-2">
+            {[
+              { key: 'all', label: 'Todo', icon: Filter },
+              { key: 'photo', label: 'Fotos', icon: Camera },
+              { key: 'video', label: 'Videos', icon: Video },
+            ].map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setFilterType(key)}
+                className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap border transition-all ${
+                  filterType === key
+                    ? 'bg-cyan-500 text-black border-cyan-400 shadow-sm shadow-cyan-500/20'
+                    : 'bg-dark-800 text-cyan-300 hover:bg-cyan-500/15 hover:text-white border-cyan-500/50 hover:border-cyan-400'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                <span>{label}</span>
+              </button>
+            ))}
           </div>
         </div>
 
