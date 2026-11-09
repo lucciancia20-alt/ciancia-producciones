@@ -6,10 +6,73 @@ import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import MediaCard from '../components/MediaCard';
 import MagnifierViewer from '../components/MagnifierViewer';
-import { Search, ArrowLeft, Camera, Video, Filter, X, ScanFace, Trash2, Loader2, ShoppingCart, Sparkles, Check } from 'lucide-react';
+import { VISUAL_COLOR_PALETTE, VISUAL_COLOR_MAP, normalizeColorList } from '../constants/visualColors';
+import {
+  Search, ArrowLeft, Camera, Video, Filter, X, ScanFace,
+  Trash2, Loader2, ShoppingCart, Sparkles, Check, ChevronDown, ChevronUp,
+} from 'lucide-react';
 
 // Carga 100% diferida del modal de selfie para evitar que se cargue face-api / tensorflow al abrir el álbum
 const SelfieSearchModal = React.lazy(() => import('../components/SelfieSearchModal'));
+
+function VisualColorChipsRow({ title, subtitle, selectedColor, onSelectColor }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs sm:text-sm font-bold text-white flex items-center gap-1.5">
+          {title}
+          {subtitle && <span className="text-xs font-normal text-gray-400">{subtitle}</span>}
+        </span>
+        {selectedColor && (
+          <button
+            type="button"
+            onClick={() => onSelectColor(null)}
+            className="text-[11px] text-neon-green hover:underline font-semibold flex items-center gap-1"
+          >
+            <X className="w-3 h-3" /> Quitar ({VISUAL_COLOR_MAP[selectedColor]?.label})
+          </button>
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => onSelectColor(null)}
+          className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+            !selectedColor
+              ? 'bg-neon-green text-black border-neon-green font-bold shadow-sm'
+              : 'bg-dark-700 text-gray-300 border-dark-500 hover:border-gray-400 hover:text-white'
+          }`}
+        >
+          Todos
+        </button>
+
+        {VISUAL_COLOR_PALETTE.map(color => {
+          const isSelected = selectedColor === color.id;
+          return (
+            <button
+              key={color.id}
+              type="button"
+              onClick={() => onSelectColor(isSelected ? null : color.id)}
+              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                isSelected
+                  ? 'bg-neon-green/20 border-neon-green text-white ring-2 ring-neon-green/40 shadow-md scale-[1.02]'
+                  : 'bg-dark-700 border-dark-500 text-gray-300 hover:border-gray-400 hover:text-white'
+              }`}
+            >
+              <span
+                className="w-3.5 h-3.5 rounded-full flex-shrink-0 border shadow-inner"
+                style={{ backgroundColor: color.hex, borderColor: color.border }}
+              />
+              <span>{color.label}</span>
+              {isSelected && <Check className="w-3.5 h-3.5 text-neon-green" />}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export default function AlbumDetail() {
   const { albumId } = useParams();
@@ -25,6 +88,21 @@ export default function AlbumDetail() {
   const [faceMatchIds, setFaceMatchIds] = useState(null); // null | Set<string>
   const [confirmDeleteMedia, setConfirmDeleteMedia] = useState(null);
   const [deletingMedia, setDeletingMedia] = useState(false);
+
+  // Estados para el filtro de Atributos Visuales (Ciclismo / Running)
+  const [visualFilterOpen, setVisualFilterOpen] = useState(false);
+  const [selectedHelmetColor, setSelectedHelmetColor] = useState(null);
+  const [selectedBikeColor, setSelectedBikeColor] = useState(null);
+  const [selectedJerseyColor, setSelectedJerseyColor] = useState(null);
+
+  const activeVisualCount = [selectedHelmetColor, selectedBikeColor, selectedJerseyColor].filter(Boolean).length;
+  const hasVisualFilter = activeVisualCount > 0;
+
+  const clearVisualFilters = () => {
+    setSelectedHelmetColor(null);
+    setSelectedBikeColor(null);
+    setSelectedJerseyColor(null);
+  };
 
   useEffect(() => {
     async function load() {
@@ -53,16 +131,30 @@ export default function AlbumDetail() {
       // Type filter
       if (filterType === 'photo' && item.type !== 'photo') return false;
       if (filterType === 'video' && item.type !== 'video') return false;
-      // Dorsal search
+      // Visual attributes filter (Casco / Bicicleta / Remera-Maillot)
+      if (selectedHelmetColor) {
+        const helmetList = normalizeColorList(item.helmetColors || []);
+        if (!helmetList.includes(selectedHelmetColor)) return false;
+      }
+      if (selectedBikeColor) {
+        const bikeList = normalizeColorList(item.bikeColors || []);
+        if (!bikeList.includes(selectedBikeColor)) return false;
+      }
+      if (selectedJerseyColor) {
+        const jerseyList = normalizeColorList(item.jerseyColors || []);
+        if (!jerseyList.includes(selectedJerseyColor)) return false;
+      }
+      // Dorsal / Bib search
       if (search.trim()) {
         const q = search.trim().toLowerCase();
-        const inDorsals = (item.dorsals || []).some(d => String(d).toLowerCase().includes(q));
+        const dorsalsList = item.dorsals || item.bibs || [];
+        const inDorsals = dorsalsList.some(d => String(d).toLowerCase().includes(q));
         const inName = (item.fileName || '').toLowerCase().includes(q);
         if (!inDorsals && !inName) return false;
       }
       return true;
     });
-  }, [media, search, filterType, faceMatchIds]);
+  }, [media, search, filterType, faceMatchIds, selectedHelmetColor, selectedBikeColor, selectedJerseyColor]);
 
   const photosWithFaces = useMemo(
     () => media.filter(m => m.type === 'photo' && Array.isArray(m.faceDescriptors) && m.faceDescriptors.length > 0),
@@ -135,7 +227,7 @@ export default function AlbumDetail() {
 
       {/* Controls */}
       <div className="max-w-7xl mx-auto px-4 py-7">
-        <div className="flex flex-col sm:flex-row gap-4">
+        <div className="flex flex-col lg:flex-row gap-3">
           {/* Dorsal search */}
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
@@ -159,39 +251,167 @@ export default function AlbumDetail() {
             )}
           </div>
 
-          {/* Selfie search */}
-          <button
-            onClick={() => setSelfieModalOpen(true)}
-            disabled={photosWithFaces.length === 0}
-            title={photosWithFaces.length === 0 ? 'Este álbum aún no tiene rostros indexados por IA' : 'Buscar mis fotos con una selfie'}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold whitespace-nowrap border border-neon-green/50 text-neon-green hover:bg-neon-green hover:text-black transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-neon-green"
-          >
-            <ScanFace className="w-4 h-4" />
-            Buscarme con Selfie 🤳
-          </button>
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Botón desplegable: Buscar por Casco / Bici / Ropa */}
+            <button
+              type="button"
+              onClick={() => setVisualFilterOpen(prev => !prev)}
+              className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold whitespace-nowrap border transition-all ${
+                visualFilterOpen || hasVisualFilter
+                  ? 'bg-neon-green text-black border-neon-green shadow-lg shadow-neon-green/20'
+                  : 'bg-dark-800 border-neon-green/50 text-neon-green hover:bg-neon-green hover:text-black'
+              }`}
+            >
+              <span>🚴 Buscar por Casco / Bici / Ropa</span>
+              {activeVisualCount > 0 && (
+                <span className={`px-1.5 py-0.5 rounded-full text-xs font-black ${
+                  visualFilterOpen || hasVisualFilter ? 'bg-black text-neon-green' : 'bg-neon-green text-black'
+                }`}>
+                  {activeVisualCount}
+                </span>
+              )}
+              {visualFilterOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
 
-          {/* Type filter */}
-          <div className="flex gap-2">
-            {[
-              { key: 'all', label: 'Todo', icon: Filter },
-              { key: 'photo', label: 'Fotos', icon: Camera },
-              { key: 'video', label: 'Videos', icon: Video },
-            ].map(({ key, label, icon: Icon }) => (
-              <button
-                key={key}
-                onClick={() => setFilterType(key)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  filterType === key
-                    ? 'bg-neon-green text-black'
-                    : 'bg-dark-700 text-gray-400 hover:text-white border border-dark-500'
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                {label}
-              </button>
-            ))}
+            {/* Selfie search */}
+            <button
+              onClick={() => setSelfieModalOpen(true)}
+              disabled={photosWithFaces.length === 0}
+              title={photosWithFaces.length === 0 ? 'Este álbum aún no tiene rostros indexados por IA' : 'Buscar mis fotos con una selfie'}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold whitespace-nowrap border border-neon-green/50 text-neon-green hover:bg-neon-green hover:text-black transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-neon-green"
+            >
+              <ScanFace className="w-4 h-4" />
+              Buscarme con Selfie 🤳
+            </button>
+
+            {/* Type filter */}
+            <div className="flex gap-2">
+              {[
+                { key: 'all', label: 'Todo', icon: Filter },
+                { key: 'photo', label: 'Fotos', icon: Camera },
+                { key: 'video', label: 'Videos', icon: Video },
+              ].map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  onClick={() => setFilterType(key)}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                    filterType === key
+                      ? 'bg-neon-green text-black'
+                      : 'bg-dark-700 text-gray-400 hover:text-white border border-dark-500'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
+
+        {/* Panel desplegable de Búsqueda por Atributos Visuales (Casco / Bicicleta / Remera-Maillot) */}
+        {visualFilterOpen && (
+          <div className="mt-4 rounded-2xl border border-neon-green/40 bg-dark-800/95 p-4 sm:p-5 shadow-xl space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-dark-600 pb-3">
+              <div>
+                <h3 className="text-white font-black text-sm sm:text-base flex items-center gap-2">
+                  <span>🚴 Filtro Visual de Ciclismo y Running</span>
+                  {hasVisualFilter && (
+                    <span className="badge-neon text-xs">
+                      {filtered.length} {filtered.length === 1 ? 'foto encontrada' : 'fotos encontradas'}
+                    </span>
+                  )}
+                </h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  ¿No se ve tu dorsal o llevabas casco y lentes? Combiná el color de tu casco, bicicleta y remera/maillot para encontrar tus fotos al instante.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {hasVisualFilter && (
+                  <button
+                    type="button"
+                    onClick={clearVisualFilters}
+                    className="flex items-center gap-1.5 text-xs font-bold text-red-300 hover:text-white bg-red-500/15 hover:bg-red-500/25 border border-red-500/30 px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    <X className="w-3.5 h-3.5" /> Limpiar colores
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setVisualFilterOpen(false)}
+                  className="text-xs text-gray-400 hover:text-white px-2.5 py-1.5 rounded-lg bg-dark-700 border border-dark-500"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <VisualColorChipsRow
+                title="🪖 Color de Casco"
+                subtitle="(Ciclismo / MTB)"
+                selectedColor={selectedHelmetColor}
+                onSelectColor={setSelectedHelmetColor}
+              />
+
+              <VisualColorChipsRow
+                title="🚲 Color de Bicicleta"
+                subtitle="(Cuadro principal)"
+                selectedColor={selectedBikeColor}
+                onSelectColor={setSelectedBikeColor}
+              />
+
+              <VisualColorChipsRow
+                title="👕 Color de Remera / Maillot"
+                subtitle="(Ciclismo / Running)"
+                selectedColor={selectedJerseyColor}
+                onSelectColor={setSelectedJerseyColor}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Banner resumen de filtros visuales activos (cuando el panel está cerrado) */}
+        {hasVisualFilter && !visualFilterOpen && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neon-green/40 bg-neon-green/10 px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2 text-sm text-white">
+              <span className="font-bold text-neon-green">🚴 Filtro visual activo:</span>
+              {selectedHelmetColor && (
+                <span className="inline-flex items-center gap-1.5 bg-dark-800 border border-dark-500 px-2.5 py-1 rounded-full text-xs">
+                  <span
+                    className="w-3 h-3 rounded-full border"
+                    style={{ backgroundColor: VISUAL_COLOR_MAP[selectedHelmetColor]?.hex, borderColor: VISUAL_COLOR_MAP[selectedHelmetColor]?.border }}
+                  />
+                  Casco: <strong>{VISUAL_COLOR_MAP[selectedHelmetColor]?.label}</strong>
+                </span>
+              )}
+              {selectedBikeColor && (
+                <span className="inline-flex items-center gap-1.5 bg-dark-800 border border-dark-500 px-2.5 py-1 rounded-full text-xs">
+                  <span
+                    className="w-3 h-3 rounded-full border"
+                    style={{ backgroundColor: VISUAL_COLOR_MAP[selectedBikeColor]?.hex, borderColor: VISUAL_COLOR_MAP[selectedBikeColor]?.border }}
+                  />
+                  Bici: <strong>{VISUAL_COLOR_MAP[selectedBikeColor]?.label}</strong>
+                </span>
+              )}
+              {selectedJerseyColor && (
+                <span className="inline-flex items-center gap-1.5 bg-dark-800 border border-dark-500 px-2.5 py-1 rounded-full text-xs">
+                  <span
+                    className="w-3 h-3 rounded-full border"
+                    style={{ backgroundColor: VISUAL_COLOR_MAP[selectedJerseyColor]?.hex, borderColor: VISUAL_COLOR_MAP[selectedJerseyColor]?.border }}
+                  />
+                  Ropa: <strong>{VISUAL_COLOR_MAP[selectedJerseyColor]?.label}</strong>
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={clearVisualFilters}
+              className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-white bg-dark-700 border border-dark-500 px-3 py-1.5 rounded-lg"
+            >
+              <X className="w-4 h-4" /> Limpiar filtro visual
+            </button>
+          </div>
+        )}
 
         {/* Face filter banner */}
         {faceMatchIds && (
@@ -211,12 +431,12 @@ export default function AlbumDetail() {
           </div>
         )}
 
-        {/* Dorsal hint + Botón Pack Completo estilo Fhotobase */}
-        {(search.trim() || (faceMatchIds && faceMatchIds.size > 0)) && (
+        {/* Dorsal / Visual / Selfie hint + Botón Pack Completo estilo Fhotobase */}
+        {(search.trim() || hasVisualFilter || (faceMatchIds && faceMatchIds.size > 0)) && (
           <div className="mt-4">
             {filtered.length === 0 ? (
               <div className="text-sm text-gray-400">
-                {search.trim() ? `Sin resultados para dorsal "${search}"` : 'Sin resultados para este filtro'}
+                {search.trim() ? `Sin resultados para dorsal "${search}"` : 'Sin resultados para la combinación de filtros seleccionada'}
               </div>
             ) : (
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-neon-green/40 bg-gradient-to-r from-neon-green/15 via-dark-800 to-dark-800 px-4 py-3.5 shadow-lg">
@@ -269,7 +489,7 @@ export default function AlbumDetail() {
           <div className="text-center py-24 text-gray-400">
             <Search className="w-16 h-16 mx-auto mb-4 opacity-20" />
             <p className="font-medium text-lg">Sin resultados</p>
-            <p className="text-sm mt-1">Probá con otro número de dorsal</p>
+            <p className="text-sm mt-1">Probá con otro número de dorsal o cambiá los colores del filtro visual</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-4 gap-y-8">

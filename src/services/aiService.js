@@ -1,16 +1,34 @@
 /**
  * aiService.js — Ciancia Producciones
- * Client-side AI:
- *   1. Lectura de dorsales deportivos (SDK oficial @google/genai en endpoint estable v1)
- *      con cola secuencial (1 por vez), pausa de 3.5s (Rate Limit Throttling) y
- *      máximo 1 reintento limpio con la API Key de respaldo tras 4s de backoff.
+ * Client-side AI (ejecutado ÚNICAMENTE al subir fotos en el Panel Admin):
+ *   1. Extracción unificada de Dorsales (`bibs`) + Atributos Visuales de Ciclismo/Running
+ *      (`helmetColors`, `bikeColors`, `jerseyColors`) en una sola llamada de visión.
+ *      Soporta Groq Vision (`VITE_GROQ_API_KEY` con `llama-3.2-11b-vision-preview` /
+ *      `llama-3.2-90b-vision-preview`) y Google Gemini (`VITE_GEMINI_API_KEY`) como
+ *      motor principal o de respaldo, con cola estrictamente secuencial (1 petición cada 3s)
+ *      para no disparar nunca el error 429.
  *   2. Reconocimiento Facial (@vladmandic/face-api con serialización plana para Firestore)
  */
 
 import { GoogleGenAI } from '@google/genai';
+import {
+  VISUAL_COLOR_PALETTE,
+  ALLOWED_VISUAL_COLORS,
+  VISUAL_COLOR_MAP,
+  normalizeSingleColor,
+  normalizeColorList,
+} from '../constants/visualColors';
+
+export {
+  VISUAL_COLOR_PALETTE,
+  ALLOWED_VISUAL_COLORS,
+  VISUAL_COLOR_MAP,
+  normalizeSingleColor,
+  normalizeColorList,
+};
 
 /**
- * Convierte un File o Blob en base64 puro y su correspondiente MIME type para Gemini Vision.
+ * Convierte un File o Blob en base64 puro y su correspondiente MIME type.
  * Escala imágenes grandes en memoria a máx 1280px JPEG (calidad 0.85) para respuestas rápidas.
  *
  * @param {File|Blob} file
@@ -78,6 +96,28 @@ function fileToBase64(file, maxDimension = 1280) {
 }
 
 /**
+ * Obtiene la lista de API Keys de Groq Vision disponibles:
+ * 1. VITE_GROQ_API_KEY
+ * 2. localStorage ('ciancia_groq_api_key')
+ */
+function getGroqApiKeys() {
+  const keys = [];
+  try {
+    const envGroq = import.meta.env.VITE_GROQ_API_KEY;
+    if (envGroq) {
+      String(envGroq).split(',').map(k => k.trim()).filter(Boolean).forEach(k => keys.push(k));
+    }
+    const localKey = localStorage.getItem('ciancia_groq_api_key');
+    if (localKey && localKey.trim()) {
+      keys.push(localKey.trim());
+    }
+  } catch {
+    // ignorar restricciones de storage
+  }
+  return [...new Set(keys)];
+}
+
+/**
  * Obtiene la lista de API Keys de Google Gemini disponibles:
  * 1. VITE_GEMINI_API_KEY (principal)
  * 2. VITE_GEMINI_API_KEY_BACKUP (respaldo)
@@ -104,18 +144,36 @@ function getGeminiApiKeys() {
   return [...new Set(keys)];
 }
 
-const PROMPT_DORSALES = 'Extrae todos los números de dorsales/pecheras visibles en esta imagen de running y devuélvelos en un array JSON de strings puro, ejemplo: ["1442", "1341"]. Si no hay dorsales visibles, devuelve [].';
+const PROMPT_VISUAL_ATTRIBUTES = `Analiza esta fotografía deportiva (ciclismo, MTB, running o trail) y devuelve ÚNICAMENTE un objeto JSON estricto con todos los atributos detectados en la imagen, sin texto adicional ni bloques markdown:
+{
+  "bibs": ["104", "256"],
+  "helmetColors": ["blanco", "negro"],
+  "bikeColors": ["rojo", "negro"],
+  "jerseyColors": ["azul", "amarillo"]
+}
+Reglas estrictas:
+1. "bibs": array de strings con los números de dorsal, pechera o placa de bicicleta visibles. Si no hay números visibles, devuelve [].
+2. "helmetColors": colores dominantes de los cascos de los deportistas visibles. Si no usan casco, devuelve [].
+3. "bikeColors": colores dominantes del cuadro de las bicicletas visibles. Si no hay bicicletas, devuelve [].
+4. "jerseyColors": colores dominantes de las remeras, camisetas o maillots de los deportistas visibles. Si no hay deportistas, devuelve [].
+5. Usa EXCLUSIVAMENTE colores de esta paleta estándar en español: "blanco", "negro", "gris", "rojo", "azul", "celeste", "verde", "amarillo", "naranja", "rosa", "violeta", "fluor".`;
 
-// Único modelo directo y ultra-rápido habilitado en el endpoint oficial v1 de Google AI Studio (~1.4s por foto, sin 404)
+// Modelos de visión para Groq y Gemini
+const GROQ_VISION_MODELS = [
+  'llama-3.2-11b-vision-preview',
+  'llama-3.2-90b-vision-preview',
+  'meta-llama/llama-4-scout-17b-16e-instruct',
+];
 const GEMINI_MODEL       = 'gemini-3.5-flash-lite';
 const GEMINI_API_VERSION = 'v1';
-const GEMINI_TIMEOUT_MS  = 10000; // Timeout estricto de 10 segundos por petición
-const THROTTLE_DELAY_MS  = 3500;  // Pausa mínima de 3.5s entre llamadas para no exceder jamás el límite RPM gratuito
-const BACKOFF_429_MS     = 4500;  // Espera de 4.5s antes de hacer el único reintento con la API Key de respaldo
+const VISION_TIMEOUT_MS  = 12000; // Timeout estricto de 12 segundos por petición
+const THROTTLE_DELAY_MS  = 3000;  // Cola secuencial: 1 petición cada 3 segundos para nunca disparar error 429
+const BACKOFF_429_MS     = 4000;  // Espera de 4s antes de reintentar con motor/clave de respaldo
 
 const aiClients = new Map();
-let preferredKeyIndex = 0;
-let lastGeminiCallEnd = 0;
+let preferredGeminiKeyIndex = 0;
+let preferredGroqModelIndex = 0;
+let lastVisionCallEnd = 0;
 
 function getAiClient(apiKey) {
   if (!aiClients.has(apiKey)) {
@@ -128,15 +186,15 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/** Garantiza al menos `minDelayMs` entre el fin de una llamada a Gemini y el inicio de la siguiente. */
+/** Garantiza al menos `minDelayMs` (3s) entre el fin de una llamada de visión y el inicio de la siguiente. */
 async function waitRateLimitSlot(minDelayMs = THROTTLE_DELAY_MS) {
-  const elapsed = Date.now() - lastGeminiCallEnd;
-  if (lastGeminiCallEnd > 0 && elapsed < minDelayMs) {
+  const elapsed = Date.now() - lastVisionCallEnd;
+  if (lastVisionCallEnd > 0 && elapsed < minDelayMs) {
     await sleep(minDelayMs - elapsed);
   }
 }
 
-/** Extrae el código HTTP de un error del SDK (si lo hay). */
+/** Extrae el código HTTP de un error (si lo hay). */
 function getErrorStatus(err) {
   if (typeof err?.status === 'number') return err.status;
   const m = String(err?.message || '').match(/\b(400|401|403|404|429|500|503)\b/);
@@ -150,7 +208,7 @@ function withTimeout(promiseFactory, ms) {
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => {
       controller.abort();
-      const e = new Error(`Timeout de ${ms} ms esperando a Gemini`);
+      const e = new Error(`Timeout de ${ms} ms esperando al motor de visión`);
       e.name = 'TimeoutError';
       reject(e);
     }, ms);
@@ -158,38 +216,166 @@ function withTimeout(promiseFactory, ms) {
   return Promise.race([promiseFactory(controller.signal), timeout]).finally(() => clearTimeout(timer));
 }
 
-/** Extrae un array plano de dorsales limpios desde el texto devuelto por Gemini. */
-export function parseDorsalsResponse(rawText) {
-  const cleanedText = String(rawText || '')
-    .replace(/```(?:json)?/gi, '')
-    .trim();
-
-  let parsed = [];
-  try {
-    parsed = JSON.parse(cleanedText || '[]');
-  } catch {
-    const match = cleanedText.match(/\[[\s\S]*?\]/);
-    try {
-      parsed = match ? JSON.parse(match[0]) : [];
-    } catch {
-      parsed = [];
-    }
-  }
-
-  if (parsed && !Array.isArray(parsed) && typeof parsed === 'object') {
-    parsed = parsed.dorsales || parsed.dorsals || parsed.numbers || [];
-  }
-  if (!Array.isArray(parsed)) return [];
-
+function cleanBibsList(rawBibs) {
+  if (!Array.isArray(rawBibs)) return [];
   return [...new Set(
-    parsed
+    rawBibs
       .map(v => String(v ?? '').replace(/\D/g, '').trim())
       .filter(v => v.length >= 1 && v.length <= 5 && !/^0+$/.test(v))
   )];
 }
 
 /**
- * Ejecuta una única consulta al endpoint v1 con una API Key específica.
+ * Extrae el JSON estructurado `{ bibs, dorsals, helmetColors, bikeColors, jerseyColors }`
+ * desde la respuesta de texto de Groq Vision o Gemini Vision.
+ */
+export function parseVisualAttributesResponse(rawText) {
+  const empty = { bibs: [], dorsals: [], helmetColors: [], bikeColors: [], jerseyColors: [] };
+  const cleanedText = String(rawText || '')
+    .replace(/```(?:json)?/gi, '')
+    .trim();
+
+  if (!cleanedText) return empty;
+
+  let parsed = null;
+  try {
+    parsed = JSON.parse(cleanedText);
+  } catch {
+    const objMatch = cleanedText.match(/\{[\s\S]*\}/);
+    if (objMatch) {
+      try {
+        parsed = JSON.parse(objMatch[0]);
+      } catch {
+        parsed = null;
+      }
+    }
+    if (!parsed) {
+      const arrMatch = cleanedText.match(/\[[\s\S]*?\]/);
+      if (arrMatch) {
+        try {
+          parsed = JSON.parse(arrMatch[0]);
+        } catch {
+          parsed = null;
+        }
+      }
+    }
+  }
+
+  if (!parsed) return empty;
+
+  if (Array.isArray(parsed)) {
+    const bibs = cleanBibsList(parsed);
+    return { bibs, dorsals: bibs, helmetColors: [], bikeColors: [], jerseyColors: [] };
+  }
+
+  if (typeof parsed === 'object') {
+    const rawBibs = parsed.bibs || parsed.dorsales || parsed.dorsals || parsed.numbers || [];
+    const bibs = cleanBibsList(rawBibs);
+    const helmetColors = normalizeColorList(parsed.helmetColors || parsed.casco || parsed.cascos || []);
+    const bikeColors = normalizeColorList(parsed.bikeColors || parsed.bici || parsed.bicicleta || parsed.bicicletas || []);
+    const jerseyColors = normalizeColorList(parsed.jerseyColors || parsed.remera || parsed.maillot || parsed.ropa || []);
+    return {
+      bibs,
+      dorsals: bibs,
+      helmetColors,
+      bikeColors,
+      jerseyColors,
+    };
+  }
+
+  return empty;
+}
+
+/** Retrocompatibilidad: devuelve solo el array de dorsales desde el texto crudo. */
+export function parseDorsalsResponse(rawText) {
+  return parseVisualAttributesResponse(rawText).bibs;
+}
+
+/**
+ * Ejecuta una consulta a Groq Vision (`llama-3.2-11b-vision-preview` / `llama-3.2-90b-vision-preview`
+ * con fallback automático si el modelo preview fue actualizado en el endpoint de Groq).
+ */
+async function callGroqVisionOnce(apiKey, base64, mimeType) {
+  const customModel = import.meta.env.VITE_GROQ_MODEL;
+  const modelsToTry = customModel
+    ? [String(customModel).trim(), ...GROQ_VISION_MODELS]
+    : [
+        GROQ_VISION_MODELS[preferredGroqModelIndex % GROQ_VISION_MODELS.length],
+        ...GROQ_VISION_MODELS.filter((_, i) => i !== (preferredGroqModelIndex % GROQ_VISION_MODELS.length)),
+      ];
+
+  const uniqueModels = [...new Set(modelsToTry)];
+  let lastError = null;
+
+  for (let i = 0; i < uniqueModels.length; i++) {
+    const model = uniqueModels[i];
+    try {
+      const data = await withTimeout(async (abortSignal) => {
+        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  { type: 'text', text: PROMPT_VISUAL_ATTRIBUTES },
+                  {
+                    type: 'image_url',
+                    image_url: {
+                      url: `data:${mimeType || 'image/jpeg'};base64,${base64}`,
+                    },
+                  },
+                ],
+              },
+            ],
+            temperature: 0.1,
+            max_completion_tokens: 300,
+            response_format: { type: 'json_object' },
+          }),
+          signal: abortSignal,
+        });
+
+        if (!res.ok) {
+          const errBody = await res.text().catch(() => '');
+          const err = new Error(`Groq HTTP ${res.status}: ${errBody.slice(0, 200)}`);
+          err.status = res.status;
+          err.body = errBody;
+          throw err;
+        }
+
+        return res.json();
+      }, VISION_TIMEOUT_MS);
+
+      const workingIdx = GROQ_VISION_MODELS.indexOf(model);
+      if (workingIdx !== -1) {
+        preferredGroqModelIndex = workingIdx;
+      }
+
+      const content = data?.choices?.[0]?.message?.content || '';
+      return {
+        provider: `Groq (${model})`,
+        attributes: parseVisualAttributesResponse(content),
+      };
+    } catch (err) {
+      lastError = err;
+      // Si el modelo específico devuelve 400 o 404 (ej. model_decommissioned), probamos el siguiente modelo de Groq
+      if (err?.status === 400 || err?.status === 404) {
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw lastError || new Error('Groq Vision falló en todos los modelos configurados');
+}
+
+/**
+ * Ejecuta una consulta al endpoint oficial v1 de Google Gemini Vision.
  */
 async function callGeminiOnce(apiKey, base64, mimeType) {
   const ai = getAiClient(apiKey);
@@ -200,95 +386,115 @@ async function callGeminiOnce(apiKey, base64, mimeType) {
         {
           role: 'user',
           parts: [
-            { text: PROMPT_DORSALES },
+            { text: PROMPT_VISUAL_ATTRIBUTES },
             { inlineData: { mimeType: mimeType || 'image/jpeg', data: base64 } },
           ],
         },
       ],
       config: {
         temperature: 0.1,
-        maxOutputTokens: 150,
+        maxOutputTokens: 250,
         abortSignal,
       },
     }),
-    GEMINI_TIMEOUT_MS,
+    VISION_TIMEOUT_MS,
   );
-  return parseDorsalsResponse(response?.text ?? '');
+  return {
+    provider: `Gemini (${GEMINI_MODEL})`,
+    attributes: parseVisualAttributesResponse(response?.text ?? ''),
+  };
 }
 
 /**
- * detectDorsalsFromFile(imageFile)
- * - Respeta una pausa obligatoria (THROTTLE_DELAY_MS = 3.5s) antes de consultar a Gemini.
- * - Intenta con la API Key activa.
- * - Si falla (429, 503, 404 o timeout) y existe una 2da API Key de respaldo,
- *   espera 4.5s (backoff), rota a la clave de respaldo y realiza UN ÚNICO reintento limpio.
- * - Si vuelve a fallar, registra el aviso una sola vez y retorna `[]` sin bloquear la subida.
+ * detectVisualAttributesFromFile(imageFile)
+ * - Analiza dorsales (`bibs`) y atributos visuales (`helmetColors`, `bikeColors`, `jerseyColors`)
+ *   en una única petición de visión.
+ * - Respeta una pausa obligatoria de 3 segundos (`THROTTLE_DELAY_MS = 3000`) entre llamadas
+ *   para no disparar nunca el error 429.
+ * - Usa Groq Vision (`VITE_GROQ_API_KEY`) como motor principal y Gemini (`VITE_GEMINI_API_KEY`)
+ *   como motor de respaldo (o viceversa según las claves disponibles).
  *
  * @param {File|Blob} imageFile
- * @returns {Promise<string[]>}
+ * @returns {Promise<{ bibs: string[], dorsals: string[], helmetColors: string[], bikeColors: string[], jerseyColors: string[] }>}
  */
-export async function detectDorsalsFromFile(imageFile) {
+export async function detectVisualAttributesFromFile(imageFile) {
+  const emptyResult = { bibs: [], dorsals: [], helmetColors: [], bikeColors: [], jerseyColors: [] };
   try {
-    const keys = getGeminiApiKeys();
-    if (keys.length === 0) {
-      return [];
+    const groqKeys = getGroqApiKeys();
+    const geminiKeys = getGeminiApiKeys();
+
+    if (groqKeys.length === 0 && geminiKeys.length === 0) {
+      return emptyResult;
     }
 
     const { base64, mimeType } = await fileToBase64(imageFile);
 
-    // Pausa obligatoria entre fotos para respetar el límite por minuto (RPM) de la capa gratuita
+    // Pausa obligatoria de 3s entre peticiones para evitar por completo errores 429
     await waitRateLimitSlot(THROTTLE_DELAY_MS);
 
-    const primaryIdx = preferredKeyIndex % keys.length;
-    const primaryKey = keys[primaryIdx];
-
-    try {
-      const dorsals = await callGeminiOnce(primaryKey, base64, mimeType);
-      lastGeminiCallEnd = Date.now();
-      // Alternar suavemente entre las claves disponibles en la próxima foto
-      if (keys.length > 1) {
-        preferredKeyIndex = (primaryIdx + 1) % keys.length;
+    // Construimos la lista ordenada de intentos: Groq primero (si está configurado) + Gemini como respaldo
+    const attempts = [];
+    groqKeys.forEach((k, idx) => {
+      attempts.push({ type: 'groq', key: k, label: `Groq Key #${idx + 1}` });
+    });
+    if (geminiKeys.length > 0) {
+      const primaryIdx = preferredGeminiKeyIndex % geminiKeys.length;
+      attempts.push({ type: 'gemini', key: geminiKeys[primaryIdx], label: `Gemini Key #${primaryIdx + 1}`, idx: primaryIdx });
+      if (geminiKeys.length > 1) {
+        const backupIdx = (primaryIdx + 1) % geminiKeys.length;
+        attempts.push({ type: 'gemini', key: geminiKeys[backupIdx], label: `Gemini Key #${backupIdx + 1} (respaldo)`, idx: backupIdx });
       }
-      console.log(`[aiService] Gemini (${GEMINI_MODEL}) [Key #${primaryIdx + 1}] detectó ${dorsals.length} dorsal(es):`, dorsals);
-      return dorsals;
-    } catch (firstErr) {
-      lastGeminiCallEnd = Date.now();
-      const status = getErrorStatus(firstErr);
+    }
 
-      // Si hay una segunda API Key de respaldo, hacemos MÁXIMO 1 reintento tras un backoff de 4.5s
-      if (keys.length > 1) {
-        const backupIdx = (primaryIdx + 1) % keys.length;
-        const backupKey = keys[backupIdx];
-        preferredKeyIndex = backupIdx;
+    // Ejecutamos hasta máximo 2 intentos (principal + 1 respaldo)
+    const maxAttempts = Math.min(2, attempts.length);
+    for (let i = 0; i < maxAttempts; i++) {
+      const current = attempts[i];
+      try {
+        const res = current.type === 'groq'
+          ? await callGroqVisionOnce(current.key, base64, mimeType)
+          : await callGeminiOnce(current.key, base64, mimeType);
 
-        console.warn(
-          `[aiService] Aviso en Key #${primaryIdx + 1} (${status || firstErr?.name || 'error'}). Esperando ${BACKOFF_429_MS / 1000}s para 1 reintento con Key #${backupIdx + 1}...`
+        lastVisionCallEnd = Date.now();
+        if (current.type === 'gemini' && geminiKeys.length > 1) {
+          preferredGeminiKeyIndex = (current.idx + 1) % geminiKeys.length;
+        }
+
+        const { attributes, provider } = res;
+        console.log(
+          `[aiService] ${provider} [${current.label}] -> dorsales: [${attributes.bibs.join(', ')}] | casco: [${attributes.helmetColors.join(', ')}] | bici: [${attributes.bikeColors.join(', ')}] | ropa: [${attributes.jerseyColors.join(', ')}]`
         );
-        await sleep(BACKOFF_429_MS);
-
-        try {
-          const dorsals = await callGeminiOnce(backupKey, base64, mimeType);
-          lastGeminiCallEnd = Date.now();
-          console.log(`[aiService] Gemini (${GEMINI_MODEL}) [Key #${backupIdx + 1} respaldo] detectó ${dorsals.length} dorsal(es):`, dorsals);
-          return dorsals;
-        } catch (retryErr) {
-          lastGeminiCallEnd = Date.now();
+        return attributes;
+      } catch (err) {
+        lastVisionCallEnd = Date.now();
+        const status = getErrorStatus(err);
+        if (i + 1 < maxAttempts) {
           console.warn(
-            `[aiService] IA omitida para "${imageFile?.name || 'imagen'}" tras reintento (${getErrorStatus(retryErr) || retryErr?.name || 'error'}). La foto puede subirse normalmente.`
+            `[aiService] Aviso en ${current.label} (${status || err?.name || 'error'}). Esperando ${BACKOFF_429_MS / 1000}s para reintentar con respaldo (${attempts[i + 1].label})...`
           );
-          return [];
+          await sleep(BACKOFF_429_MS);
+        } else {
+          console.warn(
+            `[aiService] IA omitida para "${imageFile?.name || 'imagen'}" (${status || err?.name || 'error'}). La foto puede subirse normalmente.`
+          );
         }
       }
-
-      console.warn(
-        `[aiService] IA omitida para "${imageFile?.name || 'imagen'}" (${status || firstErr?.name || 'error'}). La foto puede subirse normalmente.`
-      );
-      return [];
     }
+
+    return emptyResult;
   } catch (unexpectedErr) {
-    console.warn('[aiService] Error inesperado en lectura de dorsales (fail-safe []):', unexpectedErr?.message || unexpectedErr);
-    return [];
+    console.warn('[aiService] Error inesperado en análisis visual (fail-safe):', unexpectedErr?.message || unexpectedErr);
+    return emptyResult;
   }
+}
+
+/**
+ * detectDorsalsFromFile(imageFile)
+ * Wrapper retrocompatible que devuelve únicamente el array de dorsales.
+ */
+export async function detectDorsalsFromFile(imageFile) {
+  const res = await detectVisualAttributesFromFile(imageFile);
+  return res.bibs;
 }
 
 // ─── face-api ────────────────────────────────────────────────────────────────
@@ -476,7 +682,7 @@ function settleWithin(promise, ms, fallback, label) {
   let timer;
   const timeout = new Promise(resolve => {
     timer = setTimeout(() => {
-      console.warn(`[aiService] ${label} superó ${ms / 1000}s. Se continúa con [].`);
+      console.warn(`[aiService] ${label} superó ${ms / 1000}s. Se continúa con valor por defecto.`);
       resolve(fallback);
     }, ms);
   });
@@ -484,24 +690,42 @@ function settleWithin(promise, ms, fallback, label) {
 }
 
 export function analyzeImageFile(file, { shouldCancel } = {}) {
+  const emptyAttrs = { bibs: [], dorsals: [], helmetColors: [], bikeColors: [], jerseyColors: [] };
   const run = async () => {
     try {
       if (typeof shouldCancel === 'function' && shouldCancel()) {
-        return { dorsals: [], faceDescriptors: [], cancelled: true };
+        return { ...emptyAttrs, faceDescriptors: [], cancelled: true };
       }
-      // Tope máximo de seguridad: 26s (cubre el intento inicial + backoff de 4.5s + 1 reintento)
-      const dorsals = await settleWithin(detectDorsalsFromFile(file), 26000, [], 'Detección de dorsales');
+      // Tope máximo de seguridad: 28s (cubre pausa 3s + intento inicial + backoff 4s + 1 reintento)
+      const attrs = await settleWithin(
+        detectVisualAttributesFromFile(file),
+        28000,
+        emptyAttrs,
+        'Detección de dorsales y atributos visuales'
+      );
+      const dorsals = Array.isArray(attrs?.bibs) ? attrs.bibs : [];
+      const helmetColors = Array.isArray(attrs?.helmetColors) ? attrs.helmetColors : [];
+      const bikeColors = Array.isArray(attrs?.bikeColors) ? attrs.bikeColors : [];
+      const jerseyColors = Array.isArray(attrs?.jerseyColors) ? attrs.jerseyColors : [];
+
       if (typeof shouldCancel === 'function' && shouldCancel()) {
-        return { dorsals, faceDescriptors: [], cancelled: true };
+        return { bibs: dorsals, dorsals, helmetColors, bikeColors, jerseyColors, faceDescriptors: [], cancelled: true };
       }
       const faceDescriptors = await settleWithin(extractFaceDescriptors(file, { forAdmin: true }), FACE_TIMEOUT_MS, [], 'Detección de rostros');
-      return { dorsals: Array.isArray(dorsals) ? dorsals : [], faceDescriptors: Array.isArray(faceDescriptors) ? faceDescriptors : [] };
+      return {
+        bibs: dorsals,
+        dorsals,
+        helmetColors,
+        bikeColors,
+        jerseyColors,
+        faceDescriptors: Array.isArray(faceDescriptors) ? faceDescriptors : [],
+      };
     } catch {
-      return { dorsals: [], faceDescriptors: [] };
+      return { ...emptyAttrs, faceDescriptors: [] };
     }
   };
 
-  // Encolado 100% secuencial (una foto tras otra) para nunca disparar ráfagas simultáneas a Gemini
+  // Encolado 100% secuencial (una foto tras otra) para nunca disparar ráfagas simultáneas a Groq/Gemini
   const result = sequentialQueue.then(run, run);
   sequentialQueue = result.catch(() => {});
   return result;
