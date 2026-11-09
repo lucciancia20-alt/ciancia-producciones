@@ -290,9 +290,9 @@ export default function AlbumDetail() {
       {/* Controls */}
       <div className="max-w-7xl mx-auto px-4 py-7">
         <div className="flex flex-wrap items-center gap-2.5">
-          {/* Dorsal search — ancho mínimo garantizado para que nunca se corte el placeholder */}
-          <div className="relative flex-1 min-w-[220px] sm:min-w-[240px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-cyan-400 pointer-events-none" />
+          {/* 1. Dorsal search — h-11 exacto e idéntico a los botones */}
+          <div className="relative flex-1 min-w-[220px] sm:min-w-[240px] h-11">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-cyan-400 pointer-events-none" />
             <input
               type="text"
               inputMode="numeric"
@@ -304,63 +304,63 @@ export default function AlbumDetail() {
               placeholder="Nº de dorsal / pechera..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full bg-dark-800 border border-cyan-500/50 hover:border-cyan-400 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 text-white placeholder-gray-300 rounded-lg pl-9 pr-8 py-2.5 text-sm font-mono focus:outline-none transition-all shadow-sm"
+              className="w-full h-11 bg-dark-800 border border-cyan-500/60 hover:border-cyan-400 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 text-white placeholder-gray-300 rounded-xl pl-10 pr-8 py-0 text-sm font-semibold leading-none focus:outline-none transition-all shadow-sm"
             />
             {search && (
               <button
                 type="button"
                 onClick={() => setSearch('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white flex items-center justify-center"
               >
                 <X className="w-4 h-4" />
               </button>
             )}
           </div>
 
-          {/* Botón desplegable: Buscar por Casco / Bici / Ropa */}
+          {/* 2. Botón desplegable: Buscar por Casco / Bici / Ropa */}
           <button
             type="button"
             onClick={() => setVisualFilterOpen(prev => !prev)}
-            className={`flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap border transition-all ${
+            className={`h-11 inline-flex items-center justify-center gap-2 px-4 rounded-xl text-sm font-bold leading-none whitespace-nowrap border transition-all shadow-sm ${
               visualFilterOpen || hasVisualFilter
                 ? 'bg-cyan-500 text-black border-cyan-400 shadow-lg shadow-cyan-500/20'
-                : 'bg-dark-800 border-cyan-500/50 text-cyan-400 hover:bg-cyan-500 hover:text-black hover:border-cyan-400'
+                : 'bg-dark-800 border-cyan-500/60 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400'
             }`}
           >
-            <span>🚴 Buscar por Casco / Bici / Ropa</span>
+            <span className="leading-none">🚴 Buscar por Casco / Bici / Ropa</span>
             {activeVisualCount > 0 && (
-              <span className={`px-1.5 py-0.5 rounded-full text-xs font-black ${
+              <span className={`px-1.5 py-0.5 rounded-full text-xs font-black leading-none ${
                 visualFilterOpen || hasVisualFilter ? 'bg-black text-cyan-400' : 'bg-cyan-500 text-black'
               }`}>
                 {activeVisualCount}
               </span>
             )}
-            {visualFilterOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            {visualFilterOpen ? <ChevronUp className="w-4 h-4 flex-shrink-0" /> : <ChevronDown className="w-4 h-4 flex-shrink-0" />}
           </button>
 
-          {/* Selfie search */}
+          {/* 3. Selfie search */}
           <button
             type="button"
             onClick={() => setSelfieModalOpen(true)}
             disabled={photosWithFaces.length === 0}
             title={photosWithFaces.length === 0 ? 'Este álbum aún no tiene rostros indexados por IA' : 'Buscar mis fotos con una selfie'}
-            className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap bg-dark-800 border border-cyan-500/50 text-cyan-400 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-dark-800 disabled:hover:text-cyan-400"
+            className="h-11 inline-flex items-center justify-center gap-2 px-4 rounded-xl text-sm font-bold leading-none whitespace-nowrap bg-dark-800 border border-cyan-500/60 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 transition-all shadow-sm disabled:opacity-75 disabled:cursor-not-allowed disabled:hover:bg-dark-800 disabled:hover:text-cyan-300"
           >
-            <ScanFace className="w-4 h-4" />
-            <span>Buscarme con Selfie 🤳</span>
+            <ScanFace className="w-4 h-4 flex-shrink-0 text-cyan-400" />
+            <span className="leading-none">Buscarme con Selfie 🤳</span>
           </button>
 
-          {/* Botón Pre-registro (Lead Capture): Avisame cuando suban mis fotos */}
+          {/* 4. Botón Pre-registro (Lead Capture): Avisame cuando suban mis fotos */}
           <button
             type="button"
             onClick={openLeadModal}
-            className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap bg-cyan-500/15 border border-cyan-500/60 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 transition-all shadow-sm"
+            className="h-11 inline-flex items-center justify-center gap-2 px-4 rounded-xl text-sm font-bold leading-none whitespace-nowrap bg-dark-800 border border-cyan-500/60 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 transition-all shadow-sm"
           >
-            <Bell className="w-4 h-4" />
-            <span>🔔 Avisame cuando suban mis fotos</span>
+            <Bell className="w-4 h-4 flex-shrink-0 text-cyan-400" />
+            <span className="leading-none">🔔 Avisame cuando suban mis fotos</span>
           </button>
 
-          {/* Type filter (Todo / Fotos / Videos) */}
+          {/* 5. Type filter (Todo / Fotos / Videos) */}
           <div className="flex items-center gap-2">
             {[
               { key: 'all', label: 'Todo', icon: Filter },
@@ -371,14 +371,14 @@ export default function AlbumDetail() {
                 key={key}
                 type="button"
                 onClick={() => setFilterType(key)}
-                className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap border transition-all ${
+                className={`h-11 inline-flex items-center justify-center gap-2 px-4 rounded-xl text-sm font-bold leading-none whitespace-nowrap border transition-all shadow-sm ${
                   filterType === key
                     ? 'bg-cyan-500 text-black border-cyan-400 shadow-sm shadow-cyan-500/20'
-                    : 'bg-dark-800 text-cyan-300 hover:bg-cyan-500/15 hover:text-white border-cyan-500/50 hover:border-cyan-400'
+                    : 'bg-dark-800 text-cyan-300 hover:bg-cyan-500/15 hover:text-white border-cyan-500/60 hover:border-cyan-400'
                 }`}
               >
-                <Icon className="w-4 h-4" />
-                <span>{label}</span>
+                <Icon className="w-4 h-4 flex-shrink-0" />
+                <span className="leading-none">{label}</span>
               </button>
             ))}
           </div>
