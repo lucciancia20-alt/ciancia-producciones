@@ -19,6 +19,7 @@ export default function MediaCard({
   onView,
   onDelete,
   onUpdatePrice,
+  albumTitle = '',
   albumLogoUrl = '',
   albumLogoPublicId = '',
   albumBasePrice,
@@ -36,6 +37,7 @@ export default function MediaCard({
   const isIndividualFeatured = Boolean(media.isIndividual || itemPrice > defaultAlbumPrice);
   const [priceDraft, setPriceDraft]    = useState(itemPrice);
   const [priceSavedFlash, setPriceSavedFlash] = useState(false);
+  const resolvedAlbumTitle = (albumTitle || media.albumTitle || '').trim();
   const resolvedLogoUrl = media.eventLogoUrl || albumLogoUrl || '';
   const resolvedLogoPublicId = media.eventLogoPublicId || albumLogoPublicId || '';
 
@@ -96,7 +98,7 @@ export default function MediaCard({
           const ctx = canvas.getContext('2d');
           ctx.clearRect(0, 0, w, h);
           ctx.drawImage(img, 0, 0, w, h);
-          drawWatermarks(ctx, w, h);
+          drawWatermarks(ctx, w, h, { albumTitle: resolvedAlbumTitle });
         }
         setLoaded(true);
       };
@@ -114,7 +116,7 @@ export default function MediaCard({
     return () => {
       cancelled = true;
     };
-  }, [media.id, media.thumb, media.url, resolvedLogoPublicId, resolvedLogoUrl]);
+  }, [media.id, media.thumb, media.url, resolvedAlbumTitle, resolvedLogoPublicId, resolvedLogoUrl]);
 
   return (
     <div

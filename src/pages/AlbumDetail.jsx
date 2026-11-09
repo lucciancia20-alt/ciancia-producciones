@@ -613,6 +613,7 @@ export default function AlbumDetail() {
                 onView={setViewingMedia}
                 onDelete={user ? setConfirmDeleteMedia : undefined}
                 onUpdatePrice={user ? handleQuickUpdateMediaPrice : undefined}
+                albumTitle={album?.title || item.albumTitle || ''}
                 albumLogoUrl={album?.eventLogoUrl || ''}
                 albumLogoPublicId={album?.eventLogoPublicId || ''}
                 albumBasePrice={
@@ -631,6 +632,7 @@ export default function AlbumDetail() {
         <MagnifierViewer
           media={viewingMedia}
           onClose={() => setViewingMedia(null)}
+          albumTitle={album?.title || viewingMedia?.albumTitle || ''}
           albumLogoUrl={album?.eventLogoUrl || ''}
           albumLogoPublicId={album?.eventLogoPublicId || ''}
         />

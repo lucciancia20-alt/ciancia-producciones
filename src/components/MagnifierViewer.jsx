@@ -5,7 +5,7 @@ import { getLowResSampleUrl } from '../services/cloudinary';
 
 const LUPE_RADIUS    = 125;
 const ZOOM_FACTOR    = 2;
-const WATERMARK_TEXT = 'CIANCIA   PRODUCCIONES';
+const WATERMARK_TEXT = 'Ciancia Producciones';
 const MAX_SAMPLE_DIM = 850; // Máximo 850px en previsualización para no entregar nunca alta resolución
 
 function formatPrice(n) {
@@ -14,11 +14,16 @@ function formatPrice(n) {
 
 // ─── Generador de Marca de Agua Reforzada Anti-IA y Anti-Recorte ─────────────
 // 1) Trama guilloché + red de líneas finas cruzadas de punta a punta sobre toda la foto.
-// 2) Patrón diagonal repetido "CIANCIA PRODUCCIONES" en doble tono (borde oscuro + relleno claro).
-// 3) Marca central de seguridad con líneas de guarda que cruza la zona media del corredor.
-export function drawWatermarks(ctx, W, H) {
+// 2) Patrón diagonal repetido en letras chicas con la marca "Ciancia Producciones".
+// 3) Marca central principal en letras grandes con el nombre dinámico del álbum (ej. "Desafío Circuito Chico").
+export function drawWatermarks(ctx, W, H, options = {}) {
   const minDim = Math.min(W, H);
   const diag   = Math.hypot(W, H);
+  const rawAlbumTitle = typeof options === 'string'
+    ? options
+    : (options?.albumTitle || '');
+  const mainCenterText = (rawAlbumTitle || '').trim() || WATERMARK_TEXT;
+  const smallDiagonalText = WATERMARK_TEXT;
 
   // ── 1) Red de líneas finas cruzadas + ondas guilloché de punta a punta ────
   ctx.save();
@@ -78,17 +83,17 @@ export function drawWatermarks(ctx, W, H) {
   ctx.restore();
   ctx.restore();
 
-  // ── 2) Patrón repetido diagonal "CIANCIA PRODUCCIONES" bien espaciado ─────
+  // ── 2) Patrón repetido diagonal en letras chicas: "Ciancia Producciones" ───
   const smallSize = Math.max(11, Math.round(minDim / 42));
   ctx.save();
-  ctx.font         = `900 ${smallSize}px "Inter", "Arial Black", sans-serif`;
+  ctx.font         = `800 ${smallSize}px "Inter", "Arial Black", sans-serif`;
   ctx.textAlign    = 'center';
   ctx.textBaseline = 'middle';
   if ('letterSpacing' in ctx) {
-    ctx.letterSpacing = `${Math.max(2, Math.round(smallSize * 0.24))}px`;
+    ctx.letterSpacing = `${Math.max(2, Math.round(smallSize * 0.2))}px`;
   }
 
-  const measured = ctx.measureText(WATERMARK_TEXT).width;
+  const measured = ctx.measureText(smallDiagonalText).width;
   const stepX    = Math.round(measured * 1.55 + 95);
   const stepY    = Math.round(Math.max(smallSize * 7.5, measured * 0.56));
 
@@ -101,22 +106,38 @@ export function drawWatermarks(ctx, W, H) {
 
       ctx.lineWidth   = Math.max(1.5, smallSize * 0.12);
       ctx.strokeStyle = 'rgba(0, 0, 0, 0.22)';
-      ctx.strokeText(WATERMARK_TEXT, 0, 0);
+      ctx.strokeText(smallDiagonalText, 0, 0);
 
       ctx.fillStyle = 'rgba(255, 255, 255, 0.20)';
-      ctx.fillText(WATERMARK_TEXT, 0, 0);
+      ctx.fillText(smallDiagonalText, 0, 0);
       ctx.restore();
     }
   }
   ctx.restore();
 
-  // ── 3) Marca central anti-IA cruzando la zona media del corredor ──────────
-  const bigSize = Math.max(18, Math.round(minDim / 13.5));
+  // ── 3) Marca central principal con el nombre del álbum en letras grandes ──
+  let bigSize = Math.max(18, Math.round(minDim / 13.5));
   ctx.save();
   ctx.translate(W / 2, H / 2);
   ctx.rotate(-Math.PI / 6);
   ctx.textAlign    = 'center';
   ctx.textBaseline = 'middle';
+
+  ctx.font = `900 ${bigSize}px "Inter", "Arial Black", sans-serif`;
+  if ('letterSpacing' in ctx) {
+    ctx.letterSpacing = `${Math.max(3, Math.round(bigSize * 0.14))}px`;
+  }
+
+  // Ajuste automático de escala si el título del álbum es largo para que luzca centrado sin cortarse
+  const maxCenterWidth = diag * 0.74;
+  const measuredCenter = ctx.measureText(mainCenterText).width;
+  if (measuredCenter > maxCenterWidth && measuredCenter > 0) {
+    bigSize = Math.max(13, Math.floor(bigSize * (maxCenterWidth / measuredCenter)));
+    ctx.font = `900 ${bigSize}px "Inter", "Arial Black", sans-serif`;
+    if ('letterSpacing' in ctx) {
+      ctx.letterSpacing = `${Math.max(2, Math.round(bigSize * 0.12))}px`;
+    }
+  }
 
   // Líneas de guarda paralelas que cruzan todo el torso del corredor
   const bandHalf = Math.round(bigSize * 1.05);
@@ -137,12 +158,7 @@ export function drawWatermarks(ctx, W, H) {
   ctx.lineTo(diag, bandHalf + 2);
   ctx.stroke();
 
-  // Texto central principal
-  ctx.font = `900 ${bigSize}px "Inter", "Arial Black", sans-serif`;
-  if ('letterSpacing' in ctx) {
-    ctx.letterSpacing = `${Math.max(4, Math.round(bigSize * 0.22))}px`;
-  }
-
+  // Texto central principal (Nombre dinámico del álbum)
   ctx.shadowColor   = 'rgba(0, 0, 0, 0.55)';
   ctx.shadowBlur    = 6;
   ctx.shadowOffsetX = 1;
@@ -150,20 +166,20 @@ export function drawWatermarks(ctx, W, H) {
 
   ctx.lineWidth   = Math.max(2, bigSize * 0.08);
   ctx.strokeStyle = 'rgba(0, 0, 0, 0.32)';
-  ctx.strokeText(WATERMARK_TEXT, 0, 0);
+  ctx.strokeText(mainCenterText, 0, 0);
 
   ctx.fillStyle = 'rgba(255, 255, 255, 0.34)';
-  ctx.fillText(WATERMARK_TEXT, 0, 0);
+  ctx.fillText(mainCenterText, 0, 0);
 
-  // Sub-bandas superior e inferior sobre la zona media del sujeto
+  // Sub-bandas superior e inferior en letras chicas con "Ciancia Producciones"
   const subSize = Math.max(10, Math.round(bigSize * 0.44));
-  ctx.font = `900 ${subSize}px "Inter", "Arial Black", sans-serif`;
+  ctx.font = `800 ${subSize}px "Inter", "Arial Black", sans-serif`;
   if ('letterSpacing' in ctx) {
-    ctx.letterSpacing = `${Math.max(3, Math.round(subSize * 0.25))}px`;
+    ctx.letterSpacing = `${Math.max(2, Math.round(subSize * 0.22))}px`;
   }
   ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
-  ctx.fillText('MUESTRA PROTEGIDA · CIANCIA PRODUCCIONES', 0, bigSize * 1.75);
-  ctx.fillText('MUESTRA PROTEGIDA · CIANCIA PRODUCCIONES', 0, -bigSize * 1.75);
+  ctx.fillText(smallDiagonalText, 0, bigSize * 1.75);
+  ctx.fillText(smallDiagonalText, 0, -bigSize * 1.75);
 
   ctx.restore();
 }
@@ -265,7 +281,7 @@ function LowResProtectionBadge() {
 }
 
 // ─── Visor de fotos en <canvas> con lupa 2x y escudo anticaptura ──────────────
-function PhotoMagnifier({ media, onClose, albumLogoUrl = '', albumLogoPublicId = '' }) {
+function PhotoMagnifier({ media, onClose, albumTitle = '', albumLogoUrl = '', albumLogoPublicId = '' }) {
   const canvasRef = useRef(null);
   const imgObjRef = useRef(null);
   const animRef   = useRef(null);
@@ -278,6 +294,7 @@ function PhotoMagnifier({ media, onClose, albumLogoUrl = '', albumLogoPublicId =
   const { addItem, removeItem, items } = useCart();
   const inCart    = items.some(i => i.id === media.id);
   const itemPrice = Number(media.price) || (media.type === 'video' ? 3000 : 2000);
+  const resolvedAlbumTitle = (albumTitle || media.albumTitle || '').trim();
   const resolvedLogoUrl = media.eventLogoUrl || albumLogoUrl || '';
   const resolvedLogoPublicId = media.eventLogoPublicId || albumLogoPublicId || '';
 
@@ -347,8 +364,8 @@ function PhotoMagnifier({ media, onClose, albumLogoUrl = '', albumLogoPublicId =
     // 1) Foto de muestra redimensionada a baja resolución (máx 850px)
     ctx.drawImage(img, 0, 0, W, H);
 
-    // 2) Marcas de agua reforzadas Anti-IA (trama guilloché + diagonales + banda central)
-    drawWatermarks(ctx, W, H);
+    // 2) Marcas de agua reforzadas Anti-IA (trama guilloché + diagonales "Ciancia Producciones" + banda central con nombre del álbum)
+    drawWatermarks(ctx, W, H, { albumTitle: resolvedAlbumTitle });
 
     // 3) Lupa 2x sobre la muestra protegida (sólo cuando el cursor está activo y no hay bloqueo)
     const inBounds = !shieldActive && mx >= 0 && my >= 0 && mx <= W && my <= H;
@@ -368,7 +385,7 @@ function PhotoMagnifier({ media, onClose, albumLogoUrl = '', albumLogoPublicId =
       ctx.translate(-mx, -my);
 
       ctx.drawImage(img, 0, 0, W, H);
-      drawWatermarks(ctx, W, H);
+      drawWatermarks(ctx, W, H, { albumTitle: resolvedAlbumTitle });
 
       ctx.restore();
 
@@ -395,7 +412,7 @@ function PhotoMagnifier({ media, onClose, albumLogoUrl = '', albumLogoPublicId =
     }
 
     animRef.current = requestAnimationFrame(draw);
-  }, [shieldActive]);
+  }, [shieldActive, resolvedAlbumTitle]);
 
   useEffect(() => {
     if (imgLoaded) animRef.current = requestAnimationFrame(draw);
@@ -551,7 +568,7 @@ function PhotoMagnifier({ media, onClose, albumLogoUrl = '', albumLogoPublicId =
 }
 
 // ─── Visor de videos ──────────────────────────────────────────────────────────
-function VideoViewer({ media, onClose }) {
+function VideoViewer({ media, onClose, albumTitle = '' }) {
   const videoRef = useRef(null);
   const [playing, setPlaying] = useState(false);
   const [muted,   setMuted  ] = useState(false);
@@ -559,6 +576,7 @@ function VideoViewer({ media, onClose }) {
   const { addItem, removeItem, items } = useCart();
   const inCart    = items.some(i => i.id === media.id);
   const itemPrice = Number(media.price) || (media.type === 'video' ? 3000 : 2000);
+  const resolvedAlbumTitle = (albumTitle || media.albumTitle || '').trim() || WATERMARK_TEXT;
 
   const togglePlay = () => {
     if (!videoRef.current) return;
@@ -636,16 +654,16 @@ function VideoViewer({ media, onClose }) {
           onContextMenu={blockMenu}
         />
 
-        {/* Marca de agua video — patrón espaciado + central */}
+        {/* Marca de agua video — patrón espaciado "Ciancia Producciones" + central con nombre del álbum */}
         <div className="absolute inset-0 pointer-events-none select-none overflow-hidden">
           <div className="absolute inset-0 grid grid-cols-2 grid-rows-3 gap-10 p-6">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="flex items-center justify-center">
                 <span
                   className="text-white/14 font-black text-[10px] rotate-[-28deg] whitespace-nowrap"
-                  style={{ letterSpacing: '0.26em', wordSpacing: '0.45em' }}
+                  style={{ letterSpacing: '0.22em', wordSpacing: '0.35em' }}
                 >
-                  CIANCIA PRODUCCIONES
+                  Ciancia Producciones
                 </span>
               </div>
             ))}
@@ -654,15 +672,15 @@ function VideoViewer({ media, onClose }) {
             <div className="rotate-[-28deg] text-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.6)]">
               <p
                 className="text-white/28 font-black text-xl whitespace-nowrap"
-                style={{ letterSpacing: '0.26em', wordSpacing: '0.45em' }}
+                style={{ letterSpacing: '0.18em', wordSpacing: '0.35em' }}
               >
-                CIANCIA PRODUCCIONES
+                {resolvedAlbumTitle}
               </p>
               <p
-                className="text-white/16 font-black text-xs whitespace-nowrap mt-3"
-                style={{ letterSpacing: '0.28em', wordSpacing: '0.45em' }}
+                className="text-white/18 font-extrabold text-xs whitespace-nowrap mt-3"
+                style={{ letterSpacing: '0.24em', wordSpacing: '0.35em' }}
               >
-                CIANCIA PRODUCCIONES
+                Ciancia Producciones
               </p>
             </div>
           </div>
@@ -704,7 +722,7 @@ function VideoViewer({ media, onClose }) {
 }
 
 // ─── Componente principal exportado ──────────────────────────────────────────
-export default function MagnifierViewer({ media, onClose, albumLogoUrl = '', albumLogoPublicId = '' }) {
+export default function MagnifierViewer({ media, onClose, albumTitle = '', albumLogoUrl = '', albumLogoPublicId = '' }) {
   useEffect(() => {
     if (!media) return;
     const prevOverflow = document.body.style.overflow;
@@ -719,6 +737,6 @@ export default function MagnifierViewer({ media, onClose, albumLogoUrl = '', alb
 
   if (!media) return null;
   return media.type === 'video'
-    ? <VideoViewer   media={media} onClose={onClose} />
-    : <PhotoMagnifier media={media} onClose={onClose} albumLogoUrl={albumLogoUrl} albumLogoPublicId={albumLogoPublicId} />;
+    ? <VideoViewer   media={media} onClose={onClose} albumTitle={albumTitle} />
+    : <PhotoMagnifier media={media} onClose={onClose} albumTitle={albumTitle} albumLogoUrl={albumLogoUrl} albumLogoPublicId={albumLogoPublicId} />;
 }
