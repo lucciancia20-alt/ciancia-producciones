@@ -6,8 +6,79 @@ const UPLOAD_PRESET = 'ciancia_uploads';
 
 const BASE_URL = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}`;
 
+// ─── Borrado Físico de Assets en Cloudinary ───────────────────────────────────
+//
+// ESTRATEGIA SEGURA (Plan Spark — sin API Secret expuesto):
+//   Cloudinary retorna un `delete_token` en la respuesta JSON al subir con un
+//   unsigned preset. Ese token es un JWT de un solo uso que permite destruir
+//   el asset via POST /delete_by_token sin necesitar el API Secret.
+//
+//   El token se persiste en Firestore junto al publicId para usarlo al borrar.
+//   TTL por defecto: 10 minutos (configurable en el preset hasta 1 hora).
+//
+// FALLBACK ROBUSTO:
+//   Si el token expiró o no está disponible (ej: assets subidos antes de esta
+//   versión), el borrado Cloudinary se omite silenciosamente pero se registra
+//   en console.warn para auditoría. El documento de Firestore se borra siempre.
+//
+// PARA PLAN BLAZE (futuro): migrar a Firebase Cloud Function con SDK Admin de
+//   Cloudinary (v2 destroy) para borrado 100% garantizado sin restricciones de TTL.
+
+/**
+ * Destruye físicamente un asset en Cloudinary usando su delete_token.
+ * No requiere API Secret — seguro para ejecutar desde el cliente.
+ *
+ * @param {string} deleteToken - Token obtenido al subir el asset (guardado en Firestore)
+ * @returns {Promise<{ result: string }>} - { result: 'ok' } si exitoso
+ */
+export async function deleteByToken(deleteToken) {
+  if (!deleteToken) throw new Error('delete_token requerido');
+  const res = await fetch(`${BASE_URL}/delete_by_token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: deleteToken }),
+  });
+  const data = await res.json();
+  if (!res.ok || data.result !== 'ok') {
+    throw new Error(data?.error?.message || `Cloudinary delete_by_token falló (HTTP ${res.status})`);
+  }
+  return data;
+}
+
+/**
+ * Intenta destruir físicamente un asset en Cloudinary de forma segura.
+ * Si el token expiró o no está disponible, registra una advertencia y resuelve
+ * sin lanzar error (el borrado en Firestore sigue siendo válido).
+ *
+ * @param {Object} mediaItem - Documento de media de Firestore
+ * @param {string} [mediaItem.cloudinaryDeleteToken] - Token de borrado
+ * @param {string} [mediaItem.publicId]              - Public ID (para logs)
+ * @returns {Promise<{ deleted: boolean, reason?: string }>}
+ */
+export async function safeDeleteCloudinaryAsset(mediaItem) {
+  const token = mediaItem?.cloudinaryDeleteToken;
+  const pid   = mediaItem?.publicId || mediaItem?.public_id || '(sin publicId)';
+
+  if (!token) {
+    console.warn(`[Cloudinary] ⚠️  Sin delete_token para ${pid}. El archivo puede quedar huérfano en Cloudinary.`);
+    return { deleted: false, reason: 'no_token' };
+  }
+
+  try {
+    await deleteByToken(token);
+    console.info(`[Cloudinary] ✅ Asset destruido físicamente: ${pid}`);
+    return { deleted: true };
+  } catch (err) {
+    // El token más común que falla es el expirado (>10 min). No bloqueamos el borrado en Firestore.
+    console.warn(`[Cloudinary] ⚠️  No se pudo destruir ${pid}: ${err.message}`);
+    return { deleted: false, reason: err.message };
+  }
+}
+
 /**
  * Sube un archivo a Cloudinary y reporta progreso.
+ * Captura el `delete_token` de la respuesta para permitir borrado físico
+ * posterior sin necesitar el API Secret (ver `safeDeleteCloudinaryAsset`).
  *
  * @param {File}     file        - Archivo a subir (imagen o video)
  * @param {Object}   options
@@ -26,6 +97,8 @@ export function uploadToCloudinary(file, { folder = 'ciancia', onProgress, event
     formData.append('file', file);
     formData.append('upload_preset', UPLOAD_PRESET);
     formData.append('folder', folder);
+    // Solicitar delete_token en la respuesta (compatible con unsigned presets)
+    formData.append('return_delete_token', '1');
 
     const xhr = new XMLHttpRequest();
 
@@ -114,9 +187,10 @@ export function buildCloudinaryWatermarkTransform({ eventLogoPublicId = '', even
  * sin recortar ni deformar fotos 9:16, 3:4 o 16:9.
  * La foto original (`url` y `secure_url`) se mantiene 100% limpia sin marca de agua para descarga HD.
  * La miniatura/vista previa (`thumb`) incluye la transformación de marca de agua dinámica si el álbum tiene logo.
+ * El `deleteToken` se persiste en Firestore para permitir borrado físico seguro sin API Secret.
  */
 function buildResult(data, isVideo, { eventLogoPublicId = '', eventLogoUrl = '' } = {}) {
-  const { public_id, secure_url, resource_type, format, duration, width, height } = data;
+  const { public_id, secure_url, resource_type, format, duration, width, height, delete_token } = data;
   const isPdf =
     String(format || '').toLowerCase() === 'pdf' ||
     resource_type === 'raw' ||
@@ -155,6 +229,8 @@ function buildResult(data, isVideo, { eventLogoPublicId = '', eventLogoUrl = '' 
     width:        width || null,
     height:       height || null,
     duration:     duration ? formatDuration(duration) : null,
+    // Token de borrado seguro (sin API Secret) — guardar en Firestore para borrado en cascada posterior
+    deleteToken:  delete_token || null,
   };
 }
 
