@@ -144,21 +144,235 @@ function getGeminiApiKeys() {
   return [...new Set(keys)];
 }
 
-const PROMPT_VISUAL_ATTRIBUTES = `Analiza esta fotografía deportiva (ciclismo, MTB, running o trail) y devuelve ÚNICAMENTE un objeto JSON estricto con todos los atributos detectados en la imagen, sin texto adicional ni bloques markdown:
+const PROMPT_VISUAL_ATTRIBUTES = `Analiza esta fotografía deportiva (fútbol, ciclismo, MTB, running o trail) y devuelve ÚNICAMENTE un objeto JSON estricto con todos los atributos detectados en la imagen, sin texto adicional ni bloques markdown:
 {
-  "bibs": ["104", "256"],
+  "bibs": ["10", "256"],
   "helmetColors": ["blanco", "negro"],
   "bikeColors": ["rojo", "negro"],
   "jerseyColors": ["azul", "amarillo"],
   "hasVisibleFace": false
 }
 Reglas estrictas:
-1. "bibs": array de strings con los números de dorsal, pechera o placa de bicicleta visibles. Si no hay números visibles, devuelve [].
-2. "helmetColors": colores dominantes de los cascos de los deportistas visibles. Si no usan casco, devuelve [].
+1. "bibs": array de strings con TODOS los números visibles de jugadores o corredores, incluyendo números estampados en camisetas de fútbol (espalda, pecho o shorts/pantalón, incluso si tienen bajo contraste, tipografía deportiva o pliegues en la tela), dorsales/pecheras de running o placas de bicicleta. Si no hay números visibles, devuelve [].
+2. "helmetColors": colores dominantes de los cascos de los deportistas visibles. Si no usan casco (ej. fútbol o running), devuelve [].
 3. "bikeColors": colores dominantes del cuadro de las bicicletas visibles. Si no hay bicicletas, devuelve [].
-4. "jerseyColors": colores dominantes de las remeras, camisetas o maillots de los deportistas visibles. Si no hay deportistas, devuelve [].
+4. "jerseyColors": colores dominantes de las camisetas de fútbol, remeras o maillots de los deportistas visibles. Si no hay deportistas, devuelve [].
 5. "hasVisibleFace": booleano (true o false). Debe ser false si las personas en la foto llevan casco y gafas/lentes que cubren los rasgos faciales, casco integral, están agachadas sobre el manubrio ocultando la cara, de espaldas o demasiado lejos para distinguir un rostro. Solo debe ser true si hay al menos un rostro descubierto y claramente identificable para reconocimiento facial.
 6. Usa EXCLUSIVAMENTE colores de esta paleta estándar en español: "blanco", "negro", "gris", "rojo", "azul", "celeste", "verde", "amarillo", "naranja", "rosa", "violeta", "fluor".`;
+
+// ─── Pipeline OCR con Preprocesamiento <canvas> + Tesseract.js para Camisetas ─
+// Umbral de confianza reducido (38%) para compensar distorsiones por pliegues de la tela,
+// sudor o curvatura en camisetas y shorts de fútbol.
+export const TESSERACT_OCR_CONFIG = {
+  charWhitelist:       '0123456789',
+  pageSegMode:         '11', // PSM 11: Sparse text (busca números sueltos en cualquier parte de la foto)
+  fallbackPageSegMode: '12', // PSM 12: Sparse text with OSD
+  minConfidence:       38,   // Umbral reducido para tolerar pliegues en camisetas deportivas
+  contrastBoost:       115,  // Incremento agresivo de contraste antes de binarizar
+  maxCanvasDim:        1600,
+};
+
+let tesseractWorkerPromise = null;
+
+/**
+ * Preprocesa una imagen en un <canvas> temporal antes de pasarla a Tesseract:
+ * 1) Escala preservando nitidez (hasta 1600px).
+ * 2) Convierte a escala de grises mediante luminancia perceptual.
+ * 3) Aplica estiramiento agresivo de contraste + binarización adaptativa (thresholding)
+ *    para que los números estampados en camisetas de fútbol resalten nítidamente sobre la tela.
+ *
+ * @param {File|Blob} file
+ * @param {Object} options
+ * @param {boolean} [options.invert=false] - Si es true, invierte blanco/negro (ideal para números blancos/claros sobre camisetas oscuras)
+ * @param {number}  [options.contrast=115] - Nivel de contraste (-255 a 255)
+ * @param {number}  [options.threshold]    - Umbral de binarización (si se omite, usa la media adaptativa de luminancia)
+ * @returns {Promise<HTMLCanvasElement>}
+ */
+export function preprocessImageForOcr(file, { invert = false, contrast = TESSERACT_OCR_CONFIG.contrastBoost, threshold = null } = {}) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      try {
+        const nw = img.naturalWidth || img.width || 1;
+        const nh = img.naturalHeight || img.height || 1;
+        const scale = Math.min(1, TESSERACT_OCR_CONFIG.maxCanvasDim / Math.max(nw, nh));
+        const w = Math.max(1, Math.round(nw * scale));
+        const h = Math.max(1, Math.round(nh * scale));
+
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0, w, h);
+
+        const imgData = ctx.getImageData(0, 0, w, h);
+        const data = imgData.data;
+        const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
+
+        // Paso 1: Convertir a escala de grises, aplicar contraste agresivo y calcular luminancia media
+        const grayValues = new Uint8Array(data.length / 4);
+        let sumLum = 0;
+
+        for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
+          // Luminancia perceptual ITU-R BT.601
+          const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+          const contrasted = Math.max(0, Math.min(255, factor * (lum - 128) + 128));
+          grayValues[p] = contrasted;
+          sumLum += contrasted;
+        }
+
+        // Paso 2: Thresholding / Binarización para separar el dorsal de la textura de la camiseta
+        const meanLum = sumLum / Math.max(1, grayValues.length);
+        const effectiveThreshold = typeof threshold === 'number'
+          ? threshold
+          : Math.max(95, Math.min(175, Math.round(meanLum * 1.05)));
+
+        for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+          const isBright = grayValues[p] >= effectiveThreshold;
+          // Tesseract rinde mejor con dígitos oscuros (0) sobre fondo blanco (255)
+          const binaryVal = invert
+            ? (isBright ? 0 : 255)
+            : (isBright ? 255 : 0);
+          data[i]     = binaryVal;
+          data[i + 1] = binaryVal;
+          data[i + 2] = binaryVal;
+          data[i + 3] = 255;
+        }
+
+        ctx.putImageData(imgData, 0, 0);
+        resolve(canvas);
+      } catch (err) {
+        reject(err);
+      }
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('No se pudo cargar la imagen para preprocesamiento OCR'));
+    };
+
+    img.src = url;
+  });
+}
+
+async function getTesseractWorker() {
+  if (!tesseractWorkerPromise) {
+    tesseractWorkerPromise = (async () => {
+      const Tesseract = await import('tesseract.js');
+      const createWorker = Tesseract.createWorker || Tesseract.default?.createWorker;
+      const worker = await createWorker('eng');
+      await worker.setParameters({
+        tessedit_char_whitelist: TESSERACT_OCR_CONFIG.charWhitelist,
+        tessedit_pageseg_mode:   TESSERACT_OCR_CONFIG.pageSegMode, // PSM 11: Sparse text
+        preserve_interword_spaces: '1',
+      });
+      return worker;
+    })().catch((err) => {
+      tesseractWorkerPromise = null;
+      throw err;
+    });
+  }
+  return tesseractWorkerPromise;
+}
+
+function extractNumbersFromTesseractData(data, minConfidence = TESSERACT_OCR_CONFIG.minConfidence) {
+  const candidates = [];
+
+  // 1) Soporte Tesseract v5 (`data.words`) y Tesseract v6/v7 (`data.blocks` -> `paragraphs` -> `lines` -> `words`)
+  const wordList = [];
+  if (Array.isArray(data?.words)) {
+    wordList.push(...data.words);
+  }
+  if (Array.isArray(data?.blocks)) {
+    for (const block of data.blocks) {
+      for (const para of block?.paragraphs || []) {
+        for (const line of para?.lines || []) {
+          for (const word of line?.words || []) {
+            wordList.push(word);
+          }
+        }
+      }
+    }
+  }
+
+  for (const w of wordList) {
+    const conf = typeof w?.confidence === 'number' ? w.confidence : 0;
+    const digits = String(w?.text || '').replace(/\D/g, '').trim();
+    if (digits && conf >= minConfidence) {
+      candidates.push(digits);
+    }
+  }
+
+  // 2) Fallback sobre data.text cuando el bloque general supera el umbral de confianza reducido
+  if (candidates.length === 0 && data?.text) {
+    const overallConf = typeof data.confidence === 'number' ? data.confidence : minConfidence;
+    if (overallConf >= minConfidence * 0.8) {
+      const matches = String(data.text).match(/\b\d{1,5}\b/g) || [];
+      candidates.push(...matches);
+    }
+  }
+
+  return cleanBibsList(candidates);
+}
+
+/**
+ * Ejecuta Tesseract OCR con preprocesamiento de alto contraste y binarización en <canvas>
+ * (tanto polaridad normal para dorsales oscuros sobre camiseta clara como polaridad invertida
+ * para dorsales claros/blancos sobre camiseta oscura) usando PSM 11/12 y whitelist '0123456789'.
+ *
+ * @param {File|Blob} imageFile
+ * @returns {Promise<string[]>}
+ */
+export async function detectNumbersWithTesseractOcr(imageFile) {
+  if (!imageFile || !imageFile.type || !imageFile.type.startsWith('image/')) return [];
+  try {
+    const worker = await getTesseractWorker();
+    const detected = new Set();
+
+    // Pasada 1: Polaridad normal (números oscuros sobre fondo claro) + Polaridad invertida (números blancos/claros sobre camiseta de color/oscura)
+    for (const invertPass of [false, true]) {
+      const processedCanvas = await preprocessImageForOcr(imageFile, {
+        invert:   invertPass,
+        contrast: TESSERACT_OCR_CONFIG.contrastBoost,
+      });
+
+      await worker.setParameters({
+        tessedit_char_whitelist: TESSERACT_OCR_CONFIG.charWhitelist,
+        tessedit_pageseg_mode:   TESSERACT_OCR_CONFIG.pageSegMode, // PSM 11 (Sparse text)
+      });
+
+      const { data } = await worker.recognize(processedCanvas, {}, { text: true, blocks: true });
+      const nums = extractNumbersFromTesseractData(data, TESSERACT_OCR_CONFIG.minConfidence);
+      nums.forEach(n => detected.add(n));
+
+      // Si en la pasada invertida aún no detectó dígitos, probamos PSM 12 (Sparse text with OSD) sobre el canvas binarizado
+      if (detected.size === 0 && invertPass === true) {
+        await worker.setParameters({
+          tessedit_char_whitelist: TESSERACT_OCR_CONFIG.charWhitelist,
+          tessedit_pageseg_mode:   TESSERACT_OCR_CONFIG.fallbackPageSegMode, // PSM 12
+        });
+        const { data: osdData } = await worker.recognize(processedCanvas, {}, { text: true, blocks: true });
+        const osdNums = extractNumbersFromTesseractData(osdData, TESSERACT_OCR_CONFIG.minConfidence);
+        osdNums.forEach(n => detected.add(n));
+      }
+    }
+
+    const finalNumbers = [...detected];
+    if (finalNumbers.length > 0) {
+      console.log(`[aiService] Tesseract OCR (PSM 11/12, conf>=${TESSERACT_OCR_CONFIG.minConfidence}%) -> números: [${finalNumbers.join(', ')}]`);
+    }
+    return finalNumbers;
+  } catch (err) {
+    console.warn('[aiService] Tesseract OCR omitido:', err?.message || err);
+    return [];
+  }
+}
 
 // Modelos de visión para Groq y Gemini
 const GROQ_VISION_MODELS = [
@@ -436,8 +650,19 @@ export async function detectVisualAttributesFromFile(imageFile) {
     const groqKeys = getGroqApiKeys();
     const geminiKeys = getGeminiApiKeys();
 
+    // Si no hay claves de API configuradas, ejecutamos directamente el pipeline local Tesseract OCR con preprocesamiento <canvas>
     if (groqKeys.length === 0 && geminiKeys.length === 0) {
-      return emptyResult;
+      const ocrNumbers = await settleWithin(
+        detectNumbersWithTesseractOcr(imageFile),
+        15000,
+        [],
+        'Tesseract OCR para camisetas/dorsales'
+      );
+      return {
+        ...emptyResult,
+        bibs: ocrNumbers,
+        dorsals: ocrNumbers,
+      };
     }
 
     const { base64, mimeType } = await fileToBase64(imageFile);
@@ -474,10 +699,32 @@ export async function detectVisualAttributesFromFile(imageFile) {
         }
 
         const { attributes, provider } = res;
+
+        // Si el motor de visión no encontró números (frecuente en camisetas de fútbol con pliegues o bajo contraste),
+        // ejecutamos el pipeline Tesseract OCR con binarización en <canvas> (PSM 11/12 + whitelist '0123456789')
+        let mergedBibs = attributes.bibs;
+        if (mergedBibs.length === 0) {
+          const ocrBibs = await settleWithin(
+            detectNumbersWithTesseractOcr(imageFile),
+            12000,
+            [],
+            'Tesseract OCR complementario para camisetas'
+          );
+          if (ocrBibs.length > 0) {
+            mergedBibs = cleanBibsList([...mergedBibs, ...ocrBibs]);
+          }
+        }
+
+        const finalAttributes = {
+          ...attributes,
+          bibs: mergedBibs,
+          dorsals: mergedBibs,
+        };
+
         console.log(
-          `[aiService] ${provider} [${current.label}] -> dorsales: [${attributes.bibs.join(', ')}] | casco: [${attributes.helmetColors.join(', ')}] | bici: [${attributes.bikeColors.join(', ')}] | ropa: [${attributes.jerseyColors.join(', ')}] | hasVisibleFace: ${attributes.hasVisibleFace}`
+          `[aiService] ${provider} [${current.label}] -> dorsales: [${finalAttributes.bibs.join(', ')}] | casco: [${finalAttributes.helmetColors.join(', ')}] | bici: [${finalAttributes.bikeColors.join(', ')}] | ropa: [${finalAttributes.jerseyColors.join(', ')}] | hasVisibleFace: ${finalAttributes.hasVisibleFace}`
         );
-        return attributes;
+        return finalAttributes;
       } catch (err) {
         lastVisionCallEnd = Date.now();
         const status = getErrorStatus(err);
@@ -488,13 +735,24 @@ export async function detectVisualAttributesFromFile(imageFile) {
           await sleep(BACKOFF_429_MS);
         } else {
           console.warn(
-            `[aiService] IA omitida para "${imageFile?.name || 'imagen'}" (${status || err?.name || 'error'}). La foto puede subirse normalmente.`
+            `[aiService] IA Vision omitida para "${imageFile?.name || 'imagen'}" (${status || err?.name || 'error'}). Ejecutando fallback Tesseract OCR...`
           );
         }
       }
     }
 
-    return emptyResult;
+    // Fallback final con Tesseract OCR preprocesado si ambos intentos de red fallaron
+    const fallbackOcrBibs = await settleWithin(
+      detectNumbersWithTesseractOcr(imageFile),
+      15000,
+      [],
+      'Tesseract OCR fallback'
+    );
+    return {
+      ...emptyResult,
+      bibs: fallbackOcrBibs,
+      dorsals: fallbackOcrBibs,
+    };
   } catch (unexpectedErr) {
     console.warn('[aiService] Error inesperado en análisis visual (fail-safe):', unexpectedErr?.message || unexpectedErr);
     return emptyResult;

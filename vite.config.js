@@ -15,6 +15,10 @@ export default defineConfig({
             if (id.includes('@vladmandic/face-api') || id.includes('@tensorflow')) {
               return 'face-api-engine';
             }
+            // Aislar tesseract.js en su propio chunk diferido para admin
+            if (id.includes('tesseract.js')) {
+              return 'tesseract-ocr-engine';
+            }
             // Firebase en chunk separado
             if (id.includes('firebase')) {
               return 'firebase-core';
