@@ -27,20 +27,30 @@ app.get('/health', (_req, res) => {
 });
 
 /**
- * GET /api/resources
- * Lista recursos de Cloudinary (útil para auditoría / diagnosticar huérfanos)
+ * GET /api/search
+ * Busca recursos en todo Cloudinary con la Search API
  */
-app.get('/api/resources', async (req, res) => {
+app.get('/api/search', async (req, res) => {
   try {
-    const prefix = req.query.prefix || '';
-    const result = await cloudinary.api.resources({
-      type: 'upload',
-      prefix,
-      max_results: 100,
+    const expression = req.query.q || 'resource_type:image OR resource_type:video';
+    const result = await cloudinary.search
+      .expression(expression)
+      .sort_by('created_at', 'desc')
+      .max_results(30)
+      .execute();
+    return res.json({
+      cloud: cloudinary.config().cloud_name,
+      total_count: result.total_count,
+      resources: result.resources.map(r => ({
+        public_id: r.public_id,
+        folder: r.folder,
+        resource_type: r.resource_type,
+        format: r.format,
+        created_at: r.created_at,
+      })),
     });
-    return res.json(result);
   } catch (error) {
-    console.error('[GET /api/resources] Error:', error);
+    console.error('[GET /api/search] Error:', error);
     return res.status(500).json({ ok: false, error: error.message });
   }
 });
