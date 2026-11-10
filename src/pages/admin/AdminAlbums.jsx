@@ -474,6 +474,16 @@ export default function AdminAlbums() {
 
       const CONCURRENCY = 5;
       const apiUrl = import.meta.env.VITE_API_URL || 'https://ciancia-api.onrender.com';
+
+      // 3.a. Borrar la carpeta completa del álbum en Cloudinary (destruye todo lo que esté bajo esa carpeta)
+      const folderToDelete = `ciancia/${album.slug || album.id}`;
+      fetch(`${apiUrl}/api/folder`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder: folderToDelete }),
+      }).catch(err => console.warn('[handleDeleteAlbum] Error borrando carpeta:', err));
+
+      // 3.b. Borrar items individuales
       for (let i = 0; i < itemsToDestroy.length; i += CONCURRENCY) {
         const chunk = itemsToDestroy.slice(i, i + CONCURRENCY);
         await Promise.all(
