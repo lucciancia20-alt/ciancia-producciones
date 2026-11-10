@@ -296,7 +296,8 @@ export default function AlbumDetail() {
         extractCloudinaryPublicId(confirmDeleteMedia.url || confirmDeleteMedia.thumb || '');
 
       if (public_id) {
-        await fetch((import.meta.env.VITE_API_URL || '') + '/api/media', {
+        const apiUrl = import.meta.env.VITE_API_URL || 'https://ciancia-api.onrender.com';
+        await fetch(`${apiUrl}/api/media`, {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

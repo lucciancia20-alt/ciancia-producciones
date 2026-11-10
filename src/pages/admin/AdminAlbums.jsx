@@ -380,7 +380,8 @@ export default function AdminAlbums() {
         extractCloudinaryPublicId(mediaItem.url || mediaItem.thumb || '');
 
       if (public_id) {
-        await fetch((import.meta.env.VITE_API_URL || '') + '/api/media', {
+        const apiUrl = import.meta.env.VITE_API_URL || 'https://ciancia-api.onrender.com';
+        await fetch(`${apiUrl}/api/media`, {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -472,11 +473,12 @@ export default function AdminAlbums() {
       });
 
       const CONCURRENCY = 5;
+      const apiUrl = import.meta.env.VITE_API_URL || 'https://ciancia-api.onrender.com';
       for (let i = 0; i < itemsToDestroy.length; i += CONCURRENCY) {
         const chunk = itemsToDestroy.slice(i, i + CONCURRENCY);
         await Promise.all(
           chunk.map(item =>
-            fetch((import.meta.env.VITE_API_URL || '') + '/api/media', {
+            fetch(`${apiUrl}/api/media`, {
               method: 'DELETE',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(item),
