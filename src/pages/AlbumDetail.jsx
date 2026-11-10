@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import MediaCard from '../components/MediaCard';
 import MagnifierViewer from '../components/MagnifierViewer';
-import { getHighResDownloadUrl } from '../services/cloudinary';
+import { getHighResDownloadUrl, extractCloudinaryPublicId } from '../services/cloudinary';
 import { VISUAL_COLOR_PALETTE, VISUAL_COLOR_MAP, normalizeColorList } from '../constants/visualColors';
 import {
   Search, ArrowLeft, Camera, Video, Filter, X, ScanFace,
@@ -290,6 +290,22 @@ export default function AlbumDetail() {
     if (!confirmDeleteMedia) return;
     setDeletingMedia(true);
     try {
+      const public_id =
+        confirmDeleteMedia.publicId ||
+        confirmDeleteMedia.public_id ||
+        extractCloudinaryPublicId(confirmDeleteMedia.url || confirmDeleteMedia.thumb || '');
+
+      if (public_id) {
+        await fetch((import.meta.env.VITE_API_URL || '') + '/api/media', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            public_id,
+            resource_type: confirmDeleteMedia.type === 'video' ? 'video' : 'image',
+          }),
+        });
+      }
+
       await deleteDoc(doc(db, 'media', confirmDeleteMedia.id));
       try {
         await deleteDoc(doc(db, 'albums', albumId, 'media', confirmDeleteMedia.id));

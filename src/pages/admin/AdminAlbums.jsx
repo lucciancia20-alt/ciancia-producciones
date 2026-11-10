@@ -10,7 +10,7 @@ import {
   Eye, ChevronDown, ChevronUp, AlertCircle, CheckCircle2,
   Bot, ScanFace, Save, Trash2, Tag, RefreshCw, Pencil, Palette, Star, Sparkles, Bell,
 } from 'lucide-react';
-import { uploadToCloudinary, extractCloudinaryPublicId, safeDeleteCloudinaryAsset } from '../../services/cloudinary';
+import { uploadToCloudinary, extractCloudinaryPublicId } from '../../services/cloudinary';
 import { VISUAL_COLOR_PALETTE, normalizeColorList } from '../../constants/visualColors';
 
 const COLOR_MAP = Object.fromEntries(VISUAL_COLOR_PALETTE.map(c => [c.id, c]));
@@ -374,28 +374,34 @@ export default function AdminAlbums() {
     if (!albumId || !mediaItem) return;
     setDeletingMediaId(mediaItem.id);
     try {
-      // 1. Destruir físicamente el asset en Cloudinary (borrado en cascada)
-      //    safeDeleteCloudinaryAsset usa el delete_token guardado en Firestore.
-      //    Si el token expiró o no existe (assets subidos antes de esta versión),
-      //    registra un aviso en consola pero NO bloquea el borrado en Firestore.
-      await safeDeleteCloudinaryAsset(mediaItem);
+      const public_id =
+        mediaItem.publicId ||
+        mediaItem.public_id ||
+        extractCloudinaryPublicId(mediaItem.url || mediaItem.thumb || '');
 
-      // 2. Borrar el documento en la colección raíz 'media'
+      if (public_id) {
+        await fetch((import.meta.env.VITE_API_URL || '') + '/api/media', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            public_id,
+            resource_type: mediaItem.type === 'video' ? 'video' : 'image',
+          }),
+        });
+      }
+
       await deleteDoc(doc(db, 'media', mediaItem.id));
 
-      // 3. Intentar borrar también en la subcolección (compatibilidad hacia atrás)
       try {
         await deleteDoc(doc(db, 'albums', albumId, 'media', mediaItem.id));
       } catch {
-        // noop — la subcolección puede no existir
+        // noop
       }
 
-      // 4. Decrementar contador totalMedia del álbum
       const targetAlbum = albums.find(a => a.id === albumId);
       const nextCount = Math.max(0, (targetAlbum?.totalMedia || 1) - 1);
       await updateDoc(doc(db, 'albums', albumId), { totalMedia: nextCount });
 
-      // 5. Actualizar estado local
       setAlbumMedia(prev => ({
         ...prev,
         [albumId]: (prev[albumId] || []).filter(m => m.id !== mediaItem.id),
@@ -426,12 +432,12 @@ export default function AdminAlbums() {
     }
   };
 
-  // ─── Eliminar álbum y sus fotos asociadas (Firestore + Cloudinary en cascada) ─
+  // ─── Eliminar álbum y sus fotos asociadas en Firestore + Cloudinary ─────────
   const handleDeleteAlbum = async (album) => {
     if (!album) return;
     setDeletingAlbumId(album.id);
     try {
-      // 1. Buscar todos los registros de media en la colección raíz 'media'
+      // 1. Buscar registros en la colección raíz 'media'
       const mediaSnap = await getDocs(query(collection(db, 'media'), where('albumId', '==', album.id)));
 
       // 2. Chequear si hay registros en la subcolección 'albums/{albumId}/media'
@@ -447,27 +453,39 @@ export default function AdminAlbums() {
         allMediaDocs.push(...subMediaSnap.docs);
       }
 
-      // 3. Destruir físicamente todos los assets en Cloudinary (en paralelo, con límite de concurrencia)
-      //    Se ejecuta ANTES de borrar Firestore para mantener coherencia en caso de error parcial.
-      //    safeDeleteCloudinaryAsset nunca lanza — registra advertencias si un token expiró.
-      const CLOUDINARY_CONCURRENCY = 5;
-      const mediaDataList = allMediaDocs.map(d => ({ id: d.id, ...d.data() }));
-      for (let i = 0; i < mediaDataList.length; i += CLOUDINARY_CONCURRENCY) {
-        const chunk = mediaDataList.slice(i, i + CLOUDINARY_CONCURRENCY);
-        await Promise.all(chunk.map(m => safeDeleteCloudinaryAsset(m)));
-      }
+      // 3. Borrar archivos físicos en Cloudinary a través del microservicio en Render
+      const seenPublicIds = new Set();
+      const itemsToDestroy = [];
+      allMediaDocs.forEach(d => {
+        const data = d.data() || {};
+        const public_id =
+          data.publicId ||
+          data.public_id ||
+          extractCloudinaryPublicId(data.url || data.thumb || '');
+        if (public_id && !seenPublicIds.has(public_id)) {
+          seenPublicIds.add(public_id);
+          itemsToDestroy.push({
+            public_id,
+            resource_type: data.type === 'video' ? 'video' : 'image',
+          });
+        }
+      });
 
-      // 4. Borrar el logo del evento en Cloudinary (si existe)
-      if (album.eventLogoPublicId || album.eventLogoUrl) {
-        // El logo del evento NO tiene delete_token (se sube vía handleUploadEventLogo).
-        // Registramos advertencia para auditoría manual si fuera necesario.
-        console.warn(
-          `[Cloudinary] ⚠️  Logo del evento "${album.eventLogoPublicId || album.eventLogoUrl}" ` +
-          `no se puede destruir automáticamente (sin delete_token). Eliminarlo manualmente en Cloudinary si es necesario.`
+      const CONCURRENCY = 5;
+      for (let i = 0; i < itemsToDestroy.length; i += CONCURRENCY) {
+        const chunk = itemsToDestroy.slice(i, i + CONCURRENCY);
+        await Promise.all(
+          chunk.map(item =>
+            fetch((import.meta.env.VITE_API_URL || '') + '/api/media', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(item),
+            }).catch(err => console.warn('[handleDeleteAlbum] Error borrando en Cloudinary:', err))
+          )
         );
       }
 
-      // 5. Borrar media en lotes writeBatch (Firestore)
+      // 4. Borrar media en lotes writeBatch
       const BATCH_SIZE = 400;
       for (let i = 0; i < allMediaDocs.length; i += BATCH_SIZE) {
         const batch = writeBatch(db);
@@ -476,10 +494,10 @@ export default function AdminAlbums() {
         await batch.commit();
       }
 
-      // 6. Borrar el documento principal del álbum
+      // 5. Borrar el documento principal del álbum
       await deleteDoc(doc(db, 'albums', album.id));
 
-      // 7. Actualizar estado local
+      // 6. Actualizar estado local
       setAlbums(prev => prev.filter(a => a.id !== album.id));
       if (uploadAlbumId === album.id) {
         setUploadAlbumId('');
@@ -1016,9 +1034,6 @@ export default function AdminAlbums() {
           url:          result.url,         // URL HD optimizada 100% LIMPIA sin marca de agua para descarga
           thumb:        result.thumb,       // Muestra baja resolución con transformación de marca de agua dinámica (fl_layer_apply)
           publicId:     result.publicId,    // Para futuras transformaciones
-          // Token de borrado seguro (sin API Secret) — permite destruir el asset físico en Cloudinary
-          // sin exponer credenciales server-side. TTL: 10 min por defecto (configurable en el upload preset).
-          cloudinaryDeleteToken: result.deleteToken || null,
           eventLogoUrl:      album?.eventLogoUrl || '',
           eventLogoPublicId: album?.eventLogoPublicId || '',
           duration:     result.duration || null,
