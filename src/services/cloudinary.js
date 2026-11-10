@@ -117,14 +117,19 @@ export function buildCloudinaryWatermarkTransform({ eventLogoPublicId = '', even
  */
 function buildResult(data, isVideo, { eventLogoPublicId = '', eventLogoUrl = '' } = {}) {
   const { public_id, secure_url, resource_type, format, duration, width, height } = data;
+  const isPdf =
+    String(format || '').toLowerCase() === 'pdf' ||
+    resource_type === 'raw' ||
+    /\.pdf$/i.test(secure_url || '');
 
   // URL de alta calidad reservada para la descarga post-compra manteniendo proporción original (100% LIMPIA)
-  const url = isVideo
+  // Para PDFs o videos preservamos el secure_url directo sin inyectar transformaciones de imagen
+  const url = (isVideo || isPdf)
     ? secure_url
     : buildImageUrl(public_id, 'w_3840,h_3840,c_limit,f_auto,q_auto:best');
 
   // Transformación opcional de marca de agua del evento para la muestra pública
-  const watermarkTransform = !isVideo
+  const watermarkTransform = (!isVideo && !isPdf)
     ? buildCloudinaryWatermarkTransform({ eventLogoPublicId, eventLogoUrl })
     : '';
 
@@ -136,7 +141,9 @@ function buildResult(data, isVideo, { eventLogoPublicId = '', eventLogoUrl = '' 
   // Muestra en baja resolución para grillas y visor público con lupa (máx 800px, comprimida q_55 + logo del evento)
   const thumb = isVideo
     ? buildVideoThumb(public_id)
-    : buildImageUrl(public_id, fullThumbTransform);
+    : isPdf
+      ? secure_url
+      : buildImageUrl(public_id, fullThumbTransform);
 
   return {
     publicId:     public_id,

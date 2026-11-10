@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { collection, getDocs, onSnapshot, query, orderBy, updateDoc, deleteDoc, doc } from 'firebase/firestore';
+import { collection, getDocs, onSnapshot, query, orderBy, updateDoc, deleteDoc, doc, Timestamp } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { useAuth } from '../../context/AuthContext';
 import { Link, useNavigate } from 'react-router-dom';
@@ -16,6 +16,10 @@ import {
 
 function formatPrice(n) {
   return `$${(n || 0).toLocaleString('es-AR')}`;
+}
+
+function isSafeHttpsUrl(url) {
+  return typeof url === 'string' && /^https:\/\//i.test(url.trim());
 }
 
 export default function AdminDashboard() {
@@ -45,6 +49,8 @@ export default function AdminDashboard() {
       (snap) => {
         const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         setOrders(list);
+        setSelectedOrder(prev => prev ? (list.find(o => o.id === prev.id) || null) : null);
+        setLiveAlertOrder(prev => prev ? (list.find(o => o.id === prev.id) || prev) : null);
         setLoading(false);
 
         if (initialOrdersLoadedRef.current) {
@@ -79,7 +85,7 @@ export default function AdminDashboard() {
       await updateDoc(doc(db, 'orders', orderId), {
         status: 'approved',
         downloadEnabled: true,
-        approvedAt: new Date(),
+        approvedAt: Timestamp.now(),
       });
       setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'approved', downloadEnabled: true } : o));
       if (selectedOrder?.id === orderId) {
@@ -128,7 +134,7 @@ export default function AdminDashboard() {
 
   // Metrics
   const totalRevenue = orders.filter(o => o.status === 'approved').reduce((s, o) => s + (o.total || 0), 0);
-  const pendingOrders = orders.filter(o => o.status === 'pending' || o.status === 'pending_mp');
+  const pendingOrders = orders.filter(o => o.status === 'pending' || o.status === 'pending_mp' || o.status === 'pending_review');
   const approvedOrders = orders.filter(o => o.status === 'approved');
 
   const STAT_CARDS = [
@@ -455,8 +461,8 @@ export default function AdminDashboard() {
             <h3 className="font-bold text-white text-lg mb-1">Comprobante de pago</h3>
             <p className="text-gray-400 text-sm mb-4">{selectedOrder.cliente?.nombre} — {formatPrice(selectedOrder.total)}</p>
 
-            {/* Voucher — soporta URL de Cloudinary (imagen o PDF) y base64 legacy */}
-            {selectedOrder.voucherUrl ? (
+            {/* Voucher — soporta URL segura de Cloudinary (imagen o PDF) y base64 legacy */}
+            {isSafeHttpsUrl(selectedOrder.voucherUrl) ? (
               <div className="space-y-3 bg-dark-900/80 border border-dark-600 rounded-xl p-3">
                 {selectedOrder.voucherUrl.toLowerCase().endsWith('.pdf') || selectedOrder.voucherName?.toLowerCase().endsWith('.pdf') ? (
                   <div className="p-6 bg-dark-700 rounded-lg text-center space-y-2">

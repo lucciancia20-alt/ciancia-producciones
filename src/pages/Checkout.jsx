@@ -1,18 +1,96 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useCart } from '../context/CartContext';
-import { addDoc, collection, Timestamp } from 'firebase/firestore';
+import { addDoc, collection, doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { Link } from 'react-router-dom';
 import {
   ArrowLeft, CreditCard, Banknote, Upload, CheckCircle, AlertCircle,
-  Loader2, Copy, Check, ExternalLink, Tag,
+  Loader2, Copy, Check, ExternalLink, Tag, FileText, ShieldCheck,
 } from 'lucide-react';
 import { getPaymentConfig } from '../firebase/paymentConfig';
 import { uploadToCloudinary } from '../services/cloudinary';
 import { sendOrderEmailNotification } from '../services/notificationService';
 
+const MAX_VOUCHER_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB máximo
+const ALLOWED_VOUCHER_MIMES = new Set([
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+  'application/pdf',
+]);
+const ALLOWED_VOUCHER_EXT_REGEX = /\.(jpe?g|png|webp|heic|heif|pdf)$/i;
+const CHECKOUT_SESSION_KEY = 'ciancia_last_checkout_order_v1';
+
+function sanitizeFileName(rawName) {
+  return String(rawName || 'comprobante')
+    .replace(/[\u0000-\u001f\u007f<>:"/\\|?*]+/g, '_')
+    .trim()
+    .slice(0, 120) || 'comprobante';
+}
+
+function validateVoucherFile(file) {
+  if (!file) return 'Seleccioná una imagen o archivo PDF de comprobante.';
+  if (file.size <= 0) return 'El archivo seleccionado está vacío.';
+  if (file.size > MAX_VOUCHER_SIZE_BYTES) {
+    return 'El archivo supera el tamaño máximo permitido de 10 MB.';
+  }
+  const mime = String(file.type || '').toLowerCase().trim();
+  const name = String(file.name || '').trim();
+  // Bloquear explícitamente vectores XSS o ejecutables (.svg, .html, .xml, .js, .exe, etc.)
+  if (
+    mime.includes('svg') ||
+    mime.includes('html') ||
+    mime.includes('xml') ||
+    mime.includes('script') ||
+    /\.(svgz?|html?|xhtml|xml|swf|mhtml|js|mjs|exe|bat|cmd|sh|php)$/i.test(name)
+  ) {
+    return 'Formato no permitido por seguridad. Subí únicamente JPG, PNG, WEBP o PDF.';
+  }
+  const validExt = ALLOWED_VOUCHER_EXT_REGEX.test(name);
+  // Algunos navegadores móviles reportan mime vacío o application/octet-stream para fotos .heic/.heif
+  const isHeicFallback = (!mime || mime === 'application/octet-stream') && /\.(heic|heif)$/i.test(name);
+  const validMime = ALLOWED_VOUCHER_MIMES.has(mime) || isHeicFallback;
+
+  if (!validMime || !validExt) {
+    return 'Formato inválido. Solo se aceptan imágenes (JPG, PNG, WEBP, HEIC) o PDF.';
+  }
+  return null;
+}
+
+function isTrustedCloudinaryUrl(url) {
+  return (
+    typeof url === 'string' &&
+    /^https:\/\/res\.cloudinary\.com\/khzko7rr\/(image|raw|video)\/upload\//i.test(url)
+  );
+}
+
+function loadPersistedCheckoutOrder() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem(CHECKOUT_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && parsed.orderId ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function savePersistedCheckoutOrder(data) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (!data) sessionStorage.removeItem(CHECKOUT_SESSION_KEY);
+    else sessionStorage.setItem(CHECKOUT_SESSION_KEY, JSON.stringify(data));
+  } catch {
+    // noop
+  }
+}
+
 function formatPrice(n) {
-  return `$${n.toLocaleString('es-AR')}`;
+  return `$${(n || 0).toLocaleString('es-AR')}`;
 }
 
 /** Botón "Copiar al portapapeles" con feedback visual */
@@ -74,16 +152,54 @@ export default function Checkout() {
     applyCoupon, removeCoupon, couponError, couponLoading,
   } = useCart();
 
-  /* ── Estado ── */
-  const [method, setMethod]         = useState('transfer');
-  const [form, setForm]             = useState({ nombre: '', email: '', telefono: '' });
+  /* ── Estado (con hidratación de seguridad desde sessionStorage solo si el carrito actual está vacío) ── */
+  const activePersisted = items.length === 0 ? loadPersistedCheckoutOrder() : null;
+  const [method, setMethod]         = useState(() => activePersisted?.method || 'transfer');
+  const [form, setForm]             = useState(() => ({
+    nombre:   activePersisted?.nombre || '',
+    email:    activePersisted?.email || '',
+    telefono: activePersisted?.telefono || '',
+  }));
   const [voucher, setVoucher]       = useState(null);
   const [voucherName, setVoucherName] = useState('');
   const [loading, setLoading]       = useState(false);
-  const [success, setSuccess]       = useState(false);
-  const [createdOrderId, setCreatedOrderId] = useState('');
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [success, setSuccess]       = useState(() => Boolean(activePersisted));
+  const [createdOrderId, setCreatedOrderId] = useState(() => activePersisted?.orderId || '');
+  const [confirmedTotal, setConfirmedTotal] = useState(() => activePersisted?.total || 0);
+  const [confirmedVoucherUrl, setConfirmedVoucherUrl] = useState(() => activePersisted?.voucherUrl || null);
+  const [confirmedVoucherName, setConfirmedVoucherName] = useState(() => activePersisted?.voucherName || '');
+  const [initialUploadWarning, setInitialUploadWarning] = useState('');
+  const [lateVoucherFile, setLateVoucherFile] = useState(null);
+  const [lateVoucherName, setLateVoucherName] = useState('');
+  const [uploadingLateVoucher, setUploadingLateVoucher] = useState(false);
+  const [lateUploadProgress, setLateUploadProgress] = useState(0);
+  const [lateVoucherError, setLateVoucherError] = useState('');
+  const [lateVoucherSuccess, setLateVoucherSuccess] = useState(false);
   const [error, setError]           = useState('');
   const [couponInput, setCouponInput] = useState('');
+
+  const isMountedRef = useRef(true);
+  const isSubmittingRef = useRef(false);
+  const isUploadingLateRef = useRef(false);
+  const lateFileInputRef = useRef(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // Si el usuario entra a Checkout con nuevos ítems en el carrito para una nueva compra, limpiamos cualquier orden previa en sessionStorage
+  useEffect(() => {
+    if (items.length > 0 && !success) {
+      savePersistedCheckoutOrder(null);
+      setCreatedOrderId('');
+      setConfirmedVoucherUrl(null);
+      setConfirmedVoucherName('');
+    }
+  }, [items.length, success]);
 
   /* ── Config de pagos desde Firestore ── */
   const [payConfig, setPayConfig]   = useState(null);
@@ -91,51 +207,104 @@ export default function Checkout() {
 
   useEffect(() => {
     getPaymentConfig()
-      .then(cfg => setPayConfig(cfg))
-      .catch(() => setPayConfig({}))
-      .finally(() => setConfigLoading(false));
+      .then(cfg => { if (isMountedRef.current) setPayConfig(cfg); })
+      .catch(() => { if (isMountedRef.current) setPayConfig({}); })
+      .finally(() => { if (isMountedRef.current) setConfigLoading(false); });
   }, []);
 
   /* ── Handlers ── */
   const handleChange = (e) => setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
 
   const handleVoucher = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setVoucher(file);
-      setVoucherName(file.name);
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const validationErr = validateVoucherFile(file);
+    if (validationErr) {
+      setError(validationErr);
+      return;
     }
+    setError('');
+    setVoucher(file);
+    setVoucherName(sanitizeFileName(file.name));
+  };
+
+  const handleClearInitialVoucher = () => {
+    setVoucher(null);
+    setVoucherName('');
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.nombre || !form.email) {
-      setError('Completá nombre y email.');
+    if (loading || isSubmittingRef.current) return;
+
+    const cleanNombre   = form.nombre.trim();
+    const cleanEmail    = form.email.trim();
+    const cleanTelefono = form.telefono.trim();
+
+    if (!cleanNombre || !cleanEmail) {
+      setError('Completá tu nombre y email para continuar.');
       return;
     }
+    if (voucher) {
+      const validationErr = validateVoucherFile(voucher);
+      if (validationErr) {
+        setError(validationErr);
+        return;
+      }
+    }
+
+    isSubmittingRef.current = true;
     setError('');
+    setInitialUploadWarning('');
     setLoading(true);
+    setUploadProgress(0);
 
     try {
-      /* ── Subir comprobante a Cloudinary (si existe) ── */
+      /* ── Subir comprobante a Cloudinary (si el usuario adjuntó uno antes de confirmar) ── */
       let voucherUrl = null;
+      let cleanVoucherName = voucher ? sanitizeFileName(voucherName || voucher.name) : null;
+
       if (voucher) {
         try {
-          const result = await uploadToCloudinary(voucher, { folder: 'ciancia/vouchers' });
-          voucherUrl = result.secure_url || result.url;
+          const result = await uploadToCloudinary(voucher, {
+            folder: 'ciancia/vouchers',
+            onProgress: (pct) => {
+              if (isMountedRef.current) setUploadProgress(pct);
+            },
+          });
+          const candidateUrl = result?.secure_url || result?.url || '';
+          if (isTrustedCloudinaryUrl(candidateUrl)) {
+            voucherUrl = candidateUrl;
+          } else {
+            throw new Error('URL de comprobante inválida');
+          }
         } catch (uploadErr) {
-          console.warn('[Checkout] No se pudo subir el comprobante a Cloudinary:', uploadErr.message);
-          // No abortamos — la orden igual se guarda sin comprobante
+          console.warn('[Checkout] No se pudo subir el comprobante en el paso inicial:', uploadErr.message);
+          // No bloqueamos la creación del pedido: activamos la Red de Seguridad en la pantalla de éxito
+          cleanVoucherName = null;
+          if (isMountedRef.current) {
+            setLateVoucherFile(voucher);
+            setLateVoucherName(sanitizeFileName(voucher.name));
+            setInitialUploadWarning(
+              'Tu pedido fue registrado correctamente, pero hubo una demora de red al adjuntar el archivo. Podés terminar de subirlo desde acá abajo con un clic.'
+            );
+          }
         }
       }
 
+      const hasVoucher = Boolean(voucherUrl);
+      const orderStatus = hasVoucher
+        ? 'pending_review'
+        : (method === 'transfer' ? 'pending' : 'pending_mp');
+
       const order = {
         cliente: {
-          nombre:   form.nombre.trim(),
-          email:    form.email.trim(),
-          telefono: form.telefono.trim(),
+          nombre:   cleanNombre,
+          email:    cleanEmail,
+          telefono: cleanTelefono,
         },
-        clienteEmailLower: form.email.trim().toLowerCase(),
+        clienteEmailLower: cleanEmail.toLowerCase(),
         items: items.map(i => ({
           id:       i.id,
           fileName: i.fileName,
@@ -146,33 +315,150 @@ export default function Checkout() {
         })),
         subtotal,
         packDiscount,
-        couponCode:     coupon?.code || null,
-        couponType:     coupon?.type || null,
-        couponValue:    coupon?.value || null,
+        couponCode:        coupon?.code || null,
+        couponType:        coupon?.type || null,
+        couponValue:       coupon?.value || null,
         couponDiscount,
         total,
-        paymentMethod:  method,
-        status:         method === 'transfer' ? 'pending' : 'pending_mp',
-        // Comprobante como URL de Cloudinary (no base64 — evita el límite de 1 MB de Firestore)
-        voucherUrl:     voucherUrl,
-        voucherName:    voucherName || null,
-        createdAt:      Timestamp.now(),
-        approvedAt:     null,
-        downloadEnabled: false,
+        paymentMethod:     method,
+        status:            orderStatus,
+        voucherStatus:     hasVoucher ? 'uploaded' : 'missing',
+        voucherUrl:        voucherUrl,
+        voucherName:       cleanVoucherName,
+        voucherUploadedAt: hasVoucher ? Timestamp.now() : null,
+        createdAt:         Timestamp.now(),
+        approvedAt:        null,
+        downloadEnabled:   false,
       };
 
       const docRef = await addDoc(collection(db, 'orders'), order);
       // Disparar notificación automática por email al administrador (no bloqueante)
       sendOrderEmailNotification(order, docRef.id, payConfig).catch(() => {});
+
+      const orderSnapshotForSession = {
+        orderId:     docRef.id,
+        method,
+        nombre:      cleanNombre,
+        email:       cleanEmail,
+        telefono:    cleanTelefono,
+        total,
+        voucherUrl:  voucherUrl,
+        voucherName: cleanVoucherName || '',
+      };
+      savePersistedCheckoutOrder(orderSnapshotForSession);
+
+      if (!isMountedRef.current) return;
       setCreatedOrderId(docRef.id);
+      setConfirmedTotal(total);
+      setConfirmedVoucherUrl(voucherUrl);
+      setConfirmedVoucherName(cleanVoucherName || '');
       clearCart();
       setSuccess(true);
     } catch (err) {
       console.error(err);
-      setError('Error al guardar la orden. Verificá tu conexión e intentá de nuevo.');
+      if (isMountedRef.current) {
+        setError('Error al guardar la orden. Verificá tu conexión e intentá de nuevo.');
+      }
     } finally {
-      setLoading(false);
+      isSubmittingRef.current = false;
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
+  };
+
+  /* ── Subida de comprobante desde la pantalla de Pedido Confirmado (Red de seguridad) ── */
+  const handleUploadLateVoucherNow = async (fileOverride = null) => {
+    const targetFile = fileOverride || lateVoucherFile;
+    if (uploadingLateVoucher || isUploadingLateRef.current) return;
+
+    if (!createdOrderId || typeof createdOrderId !== 'string' || !createdOrderId.trim()) {
+      setLateVoucherError('No se encontró el identificador del pedido para adjuntar el comprobante.');
+      return;
+    }
+    if (!targetFile) {
+      if (lateFileInputRef.current) lateFileInputRef.current.click();
+      return;
+    }
+
+    const validationErr = validateVoucherFile(targetFile);
+    if (validationErr) {
+      setLateVoucherError(validationErr);
+      return;
+    }
+
+    isUploadingLateRef.current = true;
+    setLateVoucherError('');
+    setUploadingLateVoucher(true);
+    setLateUploadProgress(0);
+
+    try {
+      const result = await uploadToCloudinary(targetFile, {
+        folder: 'ciancia/vouchers',
+        onProgress: (pct) => {
+          if (isMountedRef.current) setLateUploadProgress(pct);
+        },
+      });
+
+      const uploadedUrl = result?.secure_url || result?.url || '';
+      if (!isTrustedCloudinaryUrl(uploadedUrl)) {
+        throw new Error('La respuesta del servidor de archivos no fue válida.');
+      }
+
+      const safeName = sanitizeFileName(targetFile.name);
+
+      await updateDoc(doc(db, 'orders', createdOrderId), {
+        voucherUrl:        uploadedUrl,
+        voucherName:       safeName,
+        voucherUploadedAt: Timestamp.now(),
+        voucherStatus:     'uploaded',
+        status:            'pending_review',
+      });
+
+      const currentPersisted = loadPersistedCheckoutOrder();
+      if (currentPersisted && currentPersisted.orderId === createdOrderId) {
+        savePersistedCheckoutOrder({
+          ...currentPersisted,
+          voucherUrl:  uploadedUrl,
+          voucherName: safeName,
+        });
+      }
+
+      if (!isMountedRef.current) return;
+      setConfirmedVoucherUrl(uploadedUrl);
+      setConfirmedVoucherName(safeName);
+      setInitialUploadWarning('');
+      setLateVoucherFile(null);
+      setLateVoucherName('');
+      setLateVoucherSuccess(true);
+    } catch (err) {
+      console.error('[Checkout] Error al subir comprobante posterior:', err);
+      if (isMountedRef.current) {
+        setLateVoucherError(
+          'No se pudo subir el comprobante. Verificá tu conexión a internet e intentá nuevamente.'
+        );
+      }
+    } finally {
+      isUploadingLateRef.current = false;
+      if (isMountedRef.current) {
+        setUploadingLateVoucher(false);
+      }
+    }
+  };
+
+  const handleSelectLateVoucher = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const validationErr = validateVoucherFile(file);
+    if (validationErr) {
+      setLateVoucherError(validationErr);
+      return;
+    }
+    setLateVoucherError('');
+    setLateVoucherFile(file);
+    setLateVoucherName(sanitizeFileName(file.name));
+    handleUploadLateVoucherNow(file);
   };
 
   /* ── Pantalla: carrito vacío ── */
@@ -185,39 +471,206 @@ export default function Checkout() {
     );
   }
 
-  /* ── Pantalla: éxito ── */
+  /* ── Pantalla: éxito (Red de Seguridad Híbrida sin redirección automática) ── */
   if (success) {
-    return (
-      <div className="min-h-screen pt-24 flex flex-col items-center justify-center px-4">
-        <div className="card-dark p-10 max-w-md w-full text-center border-neon-green/30">
-          <CheckCircle className="w-20 h-20 text-neon-green mx-auto mb-4" />
-          <h2 className="text-2xl font-black text-white mb-2">¡Pedido recibido!</h2>
-          <p className="text-gray-400 mb-4 leading-relaxed">
-            {method === 'transfer'
-              ? 'Tu pago está pendiente de verificación. Revisaremos tu comprobante y habilitaremos la descarga sin marca de agua en cuanto confirmemos la transferencia.'
-              : 'Tu pedido fue recibido. Te avisaremos por email cuando esté aprobado.'}
-          </p>
+    const hasUploadedReceipt = Boolean(confirmedVoucherUrl);
 
-          {createdOrderId && (
-            <div className="bg-dark-700 border border-dark-500 rounded-xl p-4 mb-4 text-left">
-              <p className="text-xs text-gray-400 mb-1">Tu código de pedido:</p>
-              <p className="font-mono text-sm text-neon-green font-bold break-all select-all">
-                {createdOrderId}
-              </p>
-              <p className="text-[11px] text-gray-500 mt-2 leading-relaxed">
-                Guardá este código. Podés consultar el estado y descargar tus archivos originales desde la tarjeta{' '}
-                <strong className="text-gray-400">"Descarga Inmediata"</strong> en la portada usando este código o tu email.
+    return (
+      <div className="min-h-screen pt-24 pb-16 flex flex-col items-center justify-center px-4">
+        <div className="card-dark p-6 sm:p-9 max-w-lg w-full text-center border-neon-green/30 space-y-5">
+          <div>
+            <CheckCircle className="w-16 h-16 text-neon-green mx-auto mb-3" />
+            <h2 className="text-2xl font-black text-white">¡Pedido confirmado!</h2>
+            <p className="text-gray-300 text-sm mt-1.5 leading-relaxed">
+              {hasUploadedReceipt
+                ? 'Recibimos tu pedido y tu comprobante de pago. Revisaremos la acreditación y habilitaremos tu descarga en Alta Definición sin marca de agua.'
+                : 'Tu pedido ya quedó registrado y reservado en nuestro sistema.'}
+            </p>
+          </div>
+
+          {/* ── RED DE SEGURIDAD: Alerta destacada y subida directa si confirmó SIN comprobante ── */}
+          {!hasUploadedReceipt ? (
+            <div className="bg-amber-500/10 border-2 border-amber-400/60 rounded-2xl p-4 sm:p-5 text-left space-y-4 shadow-lg">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-400/20 border border-amber-400/50 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <AlertCircle className="w-5 h-5 text-amber-300" />
+                </div>
+                <div className="space-y-1">
+                  <span className="inline-block text-[11px] font-extrabold uppercase tracking-wider text-amber-300">
+                    Falta adjuntar tu comprobante
+                  </span>
+                  <h3 className="text-white font-bold text-sm sm:text-base leading-snug">
+                    Subí tu comprobante de pago ahora para activar la descarga
+                  </h3>
+                  <p className="text-xs text-gray-300 leading-relaxed">
+                    {initialUploadWarning ||
+                      'Confirmaste tu pedido sin adjuntar el comprobante. Podés transferir ahora mismo con los datos de abajo y subir la captura o PDF acá sin salir de esta pantalla.'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Resumen rápido de datos bancarios / MP por si el cliente necesita copiar CBU/Alias en este paso */}
+              <div className="bg-dark-800/90 border border-dark-500 rounded-xl p-3 space-y-1.5">
+                <div className="flex items-center justify-between text-xs pb-1 border-b border-dark-600">
+                  <span className="text-gray-400 font-semibold">
+                    {method === 'transfer' ? 'Datos para Transferencia' : 'Datos de Mercado Pago'}
+                  </span>
+                  {confirmedTotal > 0 && (
+                    <span className="text-neon-green font-black">
+                      Total: {formatPrice(confirmedTotal)}
+                    </span>
+                  )}
+                </div>
+                {method === 'transfer' ? (
+                  <>
+                    <BankRow label="Titular" value={payConfig?.titular || 'Luciano Horacio Ciancia'} />
+                    <BankRow label="Banco"   value={payConfig?.banco} />
+                    <BankRow label="CBU"     value={payConfig?.cbu}   copyable />
+                    <BankRow label="Alias"   value={payConfig?.alias} copyable />
+                  </>
+                ) : (
+                  <>
+                    <BankRow label="Titular"  value={payConfig?.titular || 'Luciano Horacio Ciancia'} />
+                    <BankRow label="Celular"  value={payConfig?.mpCelular} copyable />
+                    <BankRow label="Alias MP" value={payConfig?.mpAlias}   copyable />
+                  </>
+                )}
+              </div>
+
+              {/* Input oculto para selección de archivo en la pantalla de éxito */}
+              <input
+                ref={lateFileInputRef}
+                type="file"
+                disabled={uploadingLateVoucher}
+                accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,.pdf"
+                onChange={handleSelectLateVoucher}
+                className="hidden"
+              />
+
+              {/* Si había un archivo preseleccionado pendiente de reintento, mostrarlo */}
+              {lateVoucherFile && !uploadingLateVoucher && (
+                <div className="flex items-center justify-between gap-2 bg-dark-800 border border-amber-400/40 rounded-xl px-3 py-2 text-xs">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FileText className="w-4 h-4 text-amber-300 flex-shrink-0" />
+                    <span className="text-gray-200 truncate">{lateVoucherName || lateVoucherFile.name}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => lateFileInputRef.current?.click()}
+                    className="text-amber-300 hover:text-white font-semibold flex-shrink-0"
+                  >
+                    Cambiar
+                  </button>
+                </div>
+              )}
+
+              {lateVoucherError && (
+                <div className="flex items-center gap-2 text-red-300 bg-red-500/15 border border-red-500/30 rounded-xl p-2.5 text-xs">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 text-red-400" />
+                  <span>{lateVoucherError}</span>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  disabled={uploadingLateVoucher}
+                  onClick={() => {
+                    if (lateVoucherFile) {
+                      handleUploadLateVoucherNow(lateVoucherFile);
+                    } else {
+                      lateFileInputRef.current?.click();
+                    }
+                  }}
+                  className="w-full py-3 px-4 rounded-xl bg-amber-400 hover:bg-amber-300 text-black font-black text-sm inline-flex items-center justify-center gap-2 transition-all shadow-lg shadow-amber-500/20 disabled:opacity-60"
+                >
+                  {uploadingLateVoucher ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>
+                        Subiendo comprobante{lateUploadProgress > 0 ? ` (${lateUploadProgress}%)` : '...'}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-4 h-4" />
+                      <span>
+                        {lateVoucherFile ? 'Reintentar subida de comprobante ahora' : 'Subir comprobante de pago ahora'}
+                      </span>
+                    </>
+                  )}
+                </button>
+                <p className="text-[11px] text-gray-400 text-center">
+                  Acepta capturas de pantalla (JPG, PNG, WEBP) o PDF hasta 10 MB.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-neon-green/10 border border-neon-green/40 rounded-2xl p-4 text-left space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-neon-green font-bold text-sm">
+                  <ShieldCheck className="w-5 h-5 flex-shrink-0" />
+                  <span>
+                    {lateVoucherSuccess
+                      ? '¡Comprobante subido y vinculado a tu pedido!'
+                      : 'Comprobante adjunto correctamente'}
+                  </span>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-neon-green text-black">
+                  En revisión
+                </span>
+              </div>
+              {confirmedVoucherName && (
+                <p className="text-xs text-gray-300 truncate">
+                  📎 Archivo: <span className="text-white font-medium">{confirmedVoucherName}</span>
+                </p>
+              )}
+              <p className="text-xs text-gray-400 leading-relaxed">
+                Tu pedido pasó a estado <strong className="text-gray-200">En revisión con comprobante</strong>. Apenas confirmemos la transferencia se habilitará tu descarga automática.
               </p>
             </div>
           )}
 
-          <p className="text-sm text-gray-500 mb-6">
-            Asociado al email <span className="text-white font-medium">{form.email}</span>
+          {createdOrderId && (
+            <div className="bg-dark-700 border border-dark-500 rounded-xl p-4 text-left">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <p className="text-xs text-gray-400">Tu código de pedido:</p>
+                <CopyButton text={createdOrderId} />
+              </div>
+              <p className="font-mono text-sm text-neon-green font-bold break-all select-all">
+                {createdOrderId}
+              </p>
+              <p className="text-[11px] text-gray-400 mt-2 leading-relaxed">
+                Guardá este código. Podés consultar el estado en vivo y descargar tus archivos originales desde{' '}
+                <strong className="text-white">&ldquo;Descarga Inmediata&rdquo;</strong> en la portada usando este código o tu email.
+              </p>
+            </div>
+          )}
+
+          <p className="text-xs sm:text-sm text-gray-400">
+            Asociado al email <span className="text-white font-semibold">{form.email}</span>
           </p>
 
-          <Link to="/" className="btn-neon w-full inline-flex justify-center">
-            Volver al inicio
-          </Link>
+          <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
+            <Link
+              to={`/?pedido=${encodeURIComponent(createdOrderId)}`}
+              onClick={() => {
+                // Solo limpiamos sessionStorage si ya subió su comprobante; si no, lo conservamos por si vuelve atrás
+                if (hasUploadedReceipt) savePersistedCheckoutOrder(null);
+              }}
+              className="btn-neon flex-1 inline-flex items-center justify-center gap-2 text-sm py-2.5"
+            >
+              <ExternalLink className="w-4 h-4" />
+              <span>Ver estado de mi pedido</span>
+            </Link>
+            <Link
+              to="/"
+              onClick={() => savePersistedCheckoutOrder(null)}
+              className="btn-outline-neon inline-flex items-center justify-center text-sm py-2.5 px-4"
+            >
+              Volver al inicio
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -381,29 +834,46 @@ export default function Checkout() {
                   </div>
                 </div>
 
-                {/* ── Adjuntar comprobante (común a Transferencia y Mercado Pago) ── */}
+                {/* ── Adjuntar comprobante (Opcional antes de confirmar — con Red de Seguridad en el siguiente paso) ── */}
                 <div className="bg-dark-700 border border-dark-500 rounded-xl p-3.5">
-                  <label className="text-xs sm:text-sm text-gray-300 mb-1.5 block font-medium">
-                    Adjuntá tu comprobante de pago
-                    <span className="text-gray-500 ml-1 font-normal">(imagen o PDF)</span>
-                  </label>
-                  <label className="flex items-center gap-3 p-2.5 border-2 border-dashed border-dark-400 rounded-lg cursor-pointer hover:border-neon-green/50 transition-colors">
-                    <Upload className="w-4 h-4 text-neon-green flex-shrink-0" />
-                    <span className="text-sm text-gray-300 truncate">
-                      {voucherName || 'Seleccionar imagen o PDF...'}
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <label className="text-xs sm:text-sm text-gray-200 font-medium">
+                      Adjuntar comprobante de pago
+                      <span className="text-gray-400 ml-1 font-normal">(imagen o PDF)</span>
+                    </label>
+                    <span className="text-[11px] text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 px-2 py-0.5 rounded-full font-semibold">
+                      Opcional en este paso
                     </span>
-                    <input
-                      type="file"
-                      accept="image/*,.pdf"
-                      onChange={handleVoucher}
-                      className="hidden"
-                    />
-                  </label>
-                  {voucher && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      Se subirá de forma segura al confirmar el pedido.
-                    </p>
-                  )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="flex-1 flex items-center gap-3 p-2.5 border-2 border-dashed border-dark-400 rounded-lg cursor-pointer hover:border-neon-green/50 transition-colors min-w-0">
+                      <Upload className="w-4 h-4 text-neon-green flex-shrink-0" />
+                      <span className="text-sm text-gray-300 truncate">
+                        {voucherName || 'Seleccionar captura o PDF (o subirlo en el siguiente paso)...'}
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,.pdf"
+                        onChange={handleVoucher}
+                        className="hidden"
+                      />
+                    </label>
+                    {voucher && (
+                      <button
+                        type="button"
+                        onClick={handleClearInitialVoucher}
+                        className="px-2.5 py-2 text-xs font-semibold text-gray-400 hover:text-red-400 bg-dark-800 border border-dark-500 rounded-lg transition-colors flex-shrink-0"
+                        title="Quitar archivo seleccionado"
+                      >
+                        Quitar
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-1.5 leading-relaxed">
+                    {voucher
+                      ? '✅ Archivo listo: se adjuntará automáticamente al confirmar el pedido.'
+                      : '💡 ¿Todavía no hiciste la transferencia? Podés confirmar tu pedido ahora y subir el comprobante en la pantalla siguiente.'}
+                  </p>
                 </div>
               </div>
 
@@ -519,8 +989,14 @@ export default function Checkout() {
                   className="btn-neon w-full mt-6 flex items-center justify-center gap-2"
                 >
                   {loading ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" />
-                      {voucher ? 'Subiendo comprobante...' : 'Enviando pedido...'}</>
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>
+                        {voucher
+                          ? `Subiendo comprobante${uploadProgress > 0 ? ` (${uploadProgress}%)` : '...'}`
+                          : 'Registrando pedido...'}
+                      </span>
+                    </>
                   ) : (
                     method === 'transfer'
                       ? 'Confirmar pedido'

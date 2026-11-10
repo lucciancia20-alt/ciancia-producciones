@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { collection, onSnapshot, query, orderBy, updateDoc, deleteDoc, doc } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, updateDoc, deleteDoc, doc, Timestamp } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { Link } from 'react-router-dom';
 import {
@@ -40,9 +40,18 @@ function formatDate(ts) {
 const STATUS_CONFIG = {
   pending: { label: 'Pendiente', color: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30', icon: Clock },
   pending_mp: { label: 'MP Pendiente', color: 'bg-sky-500/20 text-sky-400 border-sky-500/30', icon: Clock },
+  pending_review: { label: 'En revisión (Comprobante)', color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30', icon: Clock },
   approved: { label: 'Aprobado', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30', icon: CheckCircle2 },
   rejected: { label: 'Rechazado', color: 'bg-red-500/20 text-red-400 border-red-500/30', icon: XCircle },
 };
+
+function isOrderPendingApproval(status) {
+  return status === 'pending' || status === 'pending_mp' || status === 'pending_review';
+}
+
+function isSafeHttpsUrl(url) {
+  return typeof url === 'string' && /^https:\/\//i.test(url.trim());
+}
 
 export default function AdminOrders() {
   const [orders, setOrders] = useState([]);
@@ -62,7 +71,11 @@ export default function AdminOrders() {
     const unsub = onSnapshot(
       qOrders,
       (snap) => {
-        setOrders(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setOrders(list);
+        // Sincronizar en tiempo real el modal abierto o el toast si el cliente acaba de subir su comprobante
+        setSelectedOrder(prev => prev ? (list.find(o => o.id === prev.id) || null) : null);
+        setLiveAlertOrder(prev => prev ? (list.find(o => o.id === prev.id) || prev) : null);
         setLoading(false);
 
         if (initialOrdersLoadedRef.current) {
@@ -91,7 +104,7 @@ export default function AdminOrders() {
       await updateDoc(doc(db, 'orders', orderId), {
         status: 'approved',
         downloadEnabled: true,
-        approvedAt: new Date(),
+        approvedAt: Timestamp.now(),
       });
       setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'approved', downloadEnabled: true } : o));
       if (selectedOrder?.id === orderId) {
@@ -138,7 +151,7 @@ export default function AdminOrders() {
   const filtered = filterStatus === 'all'
     ? orders
     : filterStatus === 'pending'
-      ? orders.filter(o => o.status === 'pending' || o.status === 'pending_mp')
+      ? orders.filter(o => isOrderPendingApproval(o.status))
       : orders.filter(o => o.status === filterStatus);
 
   return (
@@ -260,9 +273,9 @@ export default function AdminOrders() {
               }`}
             >
               {label}
-              {key === 'pending' && orders.filter(o => o.status === 'pending' || o.status === 'pending_mp').length > 0 && (
+              {key === 'pending' && orders.filter(o => isOrderPendingApproval(o.status)).length > 0 && (
                 <span className="ml-2 badge-neon">
-                  {orders.filter(o => o.status === 'pending' || o.status === 'pending_mp').length}
+                  {orders.filter(o => isOrderPendingApproval(o.status)).length}
                 </span>
               )}
             </button>
@@ -358,7 +371,7 @@ export default function AdminOrders() {
                         </>
                       )}
 
-                      {(order.status === 'pending' || order.status === 'pending_mp') && (
+                      {isOrderPendingApproval(order.status) && (
                         <button
                           onClick={() => handleApprove(order.id)}
                           disabled={approvingId === order.id}
@@ -419,8 +432,8 @@ export default function AdminOrders() {
               </button>
             </div>
 
-            {/* Voucher — soporta URL de Cloudinary (imagen o PDF) y base64 legacy */}
-            {selectedOrder.voucherUrl ? (
+            {/* Voucher — soporta URL segura de Cloudinary (imagen o PDF) y base64 legacy */}
+            {isSafeHttpsUrl(selectedOrder.voucherUrl) ? (
               <div className="space-y-3 bg-dark-900/80 border border-dark-600 rounded-xl p-3">
                 {selectedOrder.voucherUrl.toLowerCase().endsWith('.pdf') || selectedOrder.voucherName?.toLowerCase().endsWith('.pdf') ? (
                   <div className="p-6 bg-dark-700 rounded-lg text-center space-y-2">
@@ -483,7 +496,7 @@ export default function AdminOrders() {
             )}
 
             <div className="flex flex-wrap gap-2.5 mt-5">
-              {(selectedOrder.status === 'pending' || selectedOrder.status === 'pending_mp') ? (
+              {isOrderPendingApproval(selectedOrder.status) ? (
                 <button
                   onClick={() => handleApprove(selectedOrder.id)}
                   disabled={approvingId === selectedOrder.id}

@@ -1,14 +1,14 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { collection, getDocs, query, orderBy, where, doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, where, doc, getDoc, updateDoc, Timestamp, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import AlbumCard from '../components/AlbumCard';
-import { getLowResSampleUrl, getHighResDownloadUrl } from '../services/cloudinary';
+import { getLowResSampleUrl, getHighResDownloadUrl, uploadToCloudinary } from '../services/cloudinary';
 import { DEFAULT_PRICES, PACK_RULES } from '../context/CartContext';
 import {
   Camera, Zap, Shield, Download, X, Search, CheckCircle2, Clock,
   Sparkles, ScanFace, ShoppingBag, ArrowRight, Film, Image as ImageIcon,
-  Loader2, AlertCircle, ExternalLink, Tag,
+  Loader2, AlertCircle, ExternalLink, Tag, Upload,
 } from 'lucide-react';
 
 const FEATURES = [
@@ -179,7 +179,50 @@ export default function Home() {
   const [orderError, setOrderError]         = useState('');
   const [downloadingId, setDownloadingId]   = useState(null);
   const [downloadingAllOrder, setDownloadingAllOrder] = useState(null); // { orderId, current, total } | null
+  const [uploadingOrderVoucherId, setUploadingOrderVoucherId] = useState(null);
+  const [orderVoucherError, setOrderVoucherError] = useState('');
   const orderUnsubsRef = useRef([]);
+
+  const handleUploadOrderVoucherInModal = async (orderId, file) => {
+    if (!orderId || !file || uploadingOrderVoucherId) return;
+    if (file.size <= 0 || file.size > 10 * 1024 * 1024) {
+      setOrderVoucherError('El archivo debe pesar menos de 10 MB.');
+      return;
+    }
+    const mime = String(file.type || '').toLowerCase().trim();
+    const name = String(file.name || '').trim();
+    const validExt = /\.(jpe?g|png|webp|heic|heif|pdf)$/i.test(name);
+    const validMime =
+      ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'].includes(mime) ||
+      ((!mime || mime === 'application/octet-stream') && /\.(heic|heif)$/i.test(name));
+    if (!validExt || !validMime) {
+      setOrderVoucherError('Formato inválido. Subí una imagen (JPG, PNG, WEBP, HEIC) o PDF.');
+      return;
+    }
+
+    setOrderVoucherError('');
+    setUploadingOrderVoucherId(orderId);
+    try {
+      const result = await uploadToCloudinary(file, { folder: 'ciancia/vouchers' });
+      const uploadedUrl = result?.secure_url || result?.url || '';
+      if (!/^https:\/\/res\.cloudinary\.com\/khzko7rr\/(image|raw|video)\/upload\//i.test(uploadedUrl)) {
+        throw new Error('URL de comprobante inválida');
+      }
+      const safeName = name.replace(/[\u0000-\u001f\u007f<>:"/\\|?*]+/g, '_').slice(0, 120) || 'comprobante';
+      await updateDoc(doc(db, 'orders', orderId), {
+        voucherUrl:        uploadedUrl,
+        voucherName:       safeName,
+        voucherUploadedAt: Timestamp.now(),
+        voucherStatus:     'uploaded',
+        status:            'pending_review',
+      });
+    } catch (err) {
+      console.error('[Home] Error al subir comprobante:', err);
+      setOrderVoucherError('No se pudo subir el comprobante. Verificá tu conexión e intentá de nuevo.');
+    } finally {
+      setUploadingOrderVoucherId(null);
+    }
+  };
 
   // Sanitiza una orden para no exponer URLs originales mientras está pendiente
   const sanitizeOrderForClient = useCallback((id, data) => {
@@ -741,19 +784,60 @@ export default function Home() {
                                   <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
                                     <CheckCircle2 className="w-3.5 h-3.5" /> Aprobado · Listo
                                   </span>
+                                ) : order.voucherUrl ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                    <Clock className="w-3.5 h-3.5" /> En revisión (Con comprobante)
+                                  </span>
                                 ) : (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">
-                                    <Clock className="w-3.5 h-3.5" /> Pendiente de aprobación
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                    <AlertCircle className="w-3.5 h-3.5" /> Falta comprobante
                                   </span>
                                 )}
                               </div>
                             </div>
 
                             {!isApproved ? (
-                              <div className="space-y-2">
-                                <p className="text-xs text-yellow-300/90 bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-2.5">
-                                  Estamos verificando tu comprobante de pago. Apenas sea aprobado por administración, esta pantalla se actualizará automáticamente y podrás descargar los {(order.items || []).length} archivo(s) en calidad original HD/4K.
-                                </p>
+                              <div className="space-y-2.5">
+                                {order.voucherUrl ? (
+                                  <p className="text-xs text-emerald-300/95 bg-emerald-500/10 border border-emerald-500/25 rounded-lg p-2.5">
+                                    ✅ Ya recibimos tu comprobante ({order.voucherName || 'adjunto'}). Apenas sea verificado por administración, esta pantalla se actualizará automáticamente y podrás descargar los {(order.items || []).length} archivo(s) en calidad original HD/4K.
+                                  </p>
+                                ) : (
+                                  <div className="bg-amber-500/10 border border-amber-400/40 rounded-xl p-3 space-y-2.5">
+                                    <p className="text-xs text-amber-200 leading-relaxed">
+                                      ⚠️ <strong>Todavía no adjuntaste tu comprobante de pago.</strong> Subilo acá abajo para que podamos verificar tu transferencia y habilitar la descarga:
+                                    </p>
+                                    {orderVoucherError && (
+                                      <p className="text-xs text-red-300 bg-red-500/15 border border-red-500/30 rounded-lg p-2">
+                                        {orderVoucherError}
+                                      </p>
+                                    )}
+                                    <label className="w-full py-2.5 px-3.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-black font-black text-xs inline-flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md">
+                                      {uploadingOrderVoucherId === order.id ? (
+                                        <>
+                                          <Loader2 className="w-4 h-4 animate-spin" />
+                                          <span>Subiendo comprobante...</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Upload className="w-4 h-4" />
+                                          <span>Subir comprobante de pago ahora</span>
+                                        </>
+                                      )}
+                                      <input
+                                        type="file"
+                                        disabled={uploadingOrderVoucherId === order.id}
+                                        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,.pdf"
+                                        onChange={(e) => {
+                                          const f = e.target.files?.[0];
+                                          e.target.value = '';
+                                          if (f) handleUploadOrderVoucherInModal(order.id, f);
+                                        }}
+                                        className="hidden"
+                                      />
+                                    </label>
+                                  </div>
+                                )}
                                 <div className="flex flex-wrap gap-1.5">
                                   {(order.items || []).map((item, idx) => (
                                     <span
