@@ -227,6 +227,22 @@ export function getLowResSampleUrl(rawUrl, { width = 800, quality = 55, eventLog
 }
 
 /**
+ * Transforma una URL maestra de video en Cloudinary en un stream de vista previa
+ * de baja resolución (`w_850,h_850,c_limit,q_45`) para no exponer el video 4K/1080p original en el visor público.
+ */
+export function getLowResVideoUrl(rawUrl, { width = 850, quality = 45 } = {}) {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+  if (rawUrl.includes('res.cloudinary.com') && rawUrl.includes('/video/upload/')) {
+    const [prefix, rest] = rawUrl.split('/video/upload/');
+    if (rest) {
+      const cleanPath = stripCloudinaryTransforms(rest);
+      return `${prefix}/video/upload/w_${width},h_${width},c_limit,q_${quality}/${cleanPath}`;
+    }
+  }
+  return rawUrl;
+}
+
+/**
  * Obtiene la URL en Máxima Calidad (HD/4K) exclusivamente para órdenes aprobadas.
  * Elimina cualquier transformación previa o capa de marca de agua para garantizar el original limpio.
  * Si `attachment: true`, agrega `fl_attachment` para que Cloudinary fuerce la descarga

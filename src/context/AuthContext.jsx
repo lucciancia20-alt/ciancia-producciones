@@ -45,7 +45,8 @@ export function AuthProvider({ children }) {
       // ignore storage errors
     }
 
-    // No inicializar resolvers ni listeners de Auth en la portada pública si no es necesario
+    // En las rutas públicas liberamos loading de inmediato para no bloquear la carga en celulares,
+    // pero suscribimos onAuthStateChanged en segundo plano para conservar la sesión del admin en la tienda.
     const isPublicPath = typeof window !== 'undefined' && (
       window.location.pathname === '/' ||
       window.location.pathname.startsWith('/album') ||
@@ -55,7 +56,6 @@ export function AuthProvider({ children }) {
 
     if (isPublicPath) {
       setLoading(false);
-      return;
     }
 
     try {

@@ -244,13 +244,23 @@ export default function AlbumDetail() {
       ? (Number(album?.priceVideo) || 3000)
       : (Number(album?.pricePhoto) || 2000);
     const individualFlag = Boolean(isIndividual || cleanPrice > basePrice);
+    const prevPrice = mediaItem.price;
+    const prevIndividual = mediaItem.isIndividual;
 
-    // Actualización optimista inmediata en la vista del álbum
+    // Actualización optimista inmediata en la vista del álbum, visor y carrito
     setMedia(prev => prev.map(m =>
       m.id === mediaItem.id
         ? { ...m, price: cleanPrice, isIndividual: individualFlag }
         : m
     ));
+    setViewingMedia(prev =>
+      prev && prev.id === mediaItem.id
+        ? { ...prev, price: cleanPrice, isIndividual: individualFlag }
+        : prev
+    );
+    if (cartItems.some(c => c.id === mediaItem.id)) {
+      addItem({ ...mediaItem, price: cleanPrice, isIndividual: individualFlag });
+    }
 
     try {
       await updateDoc(doc(db, 'media', mediaItem.id), {
@@ -258,6 +268,20 @@ export default function AlbumDetail() {
         isIndividual: individualFlag,
       });
     } catch (err) {
+      // Revertir estado optimista si falla Firestore
+      setMedia(prev => prev.map(m =>
+        m.id === mediaItem.id
+          ? { ...m, price: prevPrice, isIndividual: prevIndividual }
+          : m
+      ));
+      setViewingMedia(prev =>
+        prev && prev.id === mediaItem.id
+          ? { ...prev, price: prevPrice, isIndividual: prevIndividual }
+          : prev
+      );
+      if (cartItems.some(c => c.id === mediaItem.id)) {
+        addItem({ ...mediaItem, price: prevPrice, isIndividual: prevIndividual });
+      }
       alert('Error al actualizar precio: ' + err.message);
     }
   };
@@ -368,13 +392,13 @@ export default function AlbumDetail() {
           <button
             type="button"
             onClick={() => setVisualFilterOpen(prev => !prev)}
-            className={`h-11 w-full inline-flex items-center justify-center gap-1.5 px-3 rounded-xl text-xs font-semibold leading-none whitespace-nowrap border transition-all shadow-sm ${
+            className={`h-11 w-full min-w-0 inline-flex items-center justify-center gap-1.5 px-3 rounded-xl text-xs font-semibold leading-none whitespace-nowrap border transition-all shadow-sm ${
               visualFilterOpen || hasVisualFilter
                 ? 'bg-cyan-500 text-black border-cyan-400 shadow-lg shadow-cyan-500/20'
                 : 'bg-dark-800 border-cyan-500/60 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400'
             }`}
           >
-            <span className="leading-none">🚴 Buscar por Casco / Bici / Ropa</span>
+            <span className="leading-none truncate">🚴 Buscar por Casco / Bici / Ropa</span>
             {activeVisualCount > 0 && (
               <span className={`px-1.5 py-0.5 rounded-full text-[11px] font-bold leading-none flex-shrink-0 ${
                 visualFilterOpen || hasVisualFilter ? 'bg-black text-cyan-400' : 'bg-cyan-500 text-black'
@@ -390,19 +414,19 @@ export default function AlbumDetail() {
             type="button"
             onClick={() => setSelfieModalOpen(true)}
             title="Buscar mis fotos con una selfie"
-            className="h-11 w-full inline-flex items-center justify-center gap-1.5 px-3 rounded-xl text-xs font-semibold leading-none whitespace-nowrap bg-dark-800 border border-cyan-500/60 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 transition-all shadow-sm"
+            className="h-11 w-full min-w-0 inline-flex items-center justify-center gap-1.5 px-3 rounded-xl text-xs font-semibold leading-none whitespace-nowrap bg-dark-800 border border-cyan-500/60 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 transition-all shadow-sm"
           >
             <ScanFace className="w-3.5 h-3.5 flex-shrink-0 text-cyan-400" />
-            <span className="leading-none">Buscarme con Selfie 🤳</span>
+            <span className="leading-none truncate">Buscarme con Selfie 🤳</span>
           </button>
 
           {/* 4. Botón Pre-registro (Lead Capture): Avisame cuando suban mis fotos */}
           <button
             type="button"
             onClick={openLeadModal}
-            className="h-11 w-full inline-flex items-center justify-center gap-1.5 px-3 rounded-xl text-xs font-semibold leading-none whitespace-nowrap bg-dark-800 border border-cyan-500/60 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 transition-all shadow-sm"
+            className="h-11 w-full min-w-0 inline-flex items-center justify-center gap-1.5 px-3 rounded-xl text-xs font-semibold leading-none whitespace-nowrap bg-dark-800 border border-cyan-500/60 text-cyan-300 hover:bg-cyan-500 hover:text-black hover:border-cyan-400 transition-all shadow-sm"
           >
-            <span className="leading-none">🔔 Avisame cuando suban mis fotos</span>
+            <span className="leading-none truncate">🔔 Avisame cuando suban mis fotos</span>
           </button>
         </div>
 
@@ -568,9 +592,9 @@ export default function AlbumDetail() {
                   <div>
                     <p className="text-white font-bold text-sm sm:text-base">
                       ¡Encontramos <span className="text-neon-green font-black">{filtered.length}</span> {filtered.length === 1 ? 'archivo tuyo' : 'archivos tuyos'}!
-                      {filtered.length >= 10 && <span className="ml-2 badge-neon">30% OFF Pack</span>}
-                      {filtered.length >= 5 && filtered.length < 10 && <span className="ml-2 badge-neon">20% OFF Pack</span>}
-                      {filtered.length >= 2 && filtered.length < 5 && <span className="ml-2 badge-neon">10% OFF Pack</span>}
+                      {filtered.length >= 5 && <span className="ml-2 badge-neon">30% OFF Pack</span>}
+                      {filtered.length >= 3 && filtered.length < 5 && <span className="ml-2 badge-neon">20% OFF Pack</span>}
+                      {filtered.length === 2 && <span className="ml-2 badge-neon">10% OFF Pack</span>}
                     </p>
                     <p className="text-xs text-gray-300 mt-0.5">
                       {filtered.length >= 2
@@ -677,6 +701,11 @@ export default function AlbumDetail() {
           albumTitle={album?.title || viewingMedia?.albumTitle || ''}
           albumLogoUrl={album?.eventLogoUrl || ''}
           albumLogoPublicId={album?.eventLogoPublicId || ''}
+          albumBasePrice={
+            viewingMedia.type === 'video'
+              ? (Number(album?.priceVideo) || 3000)
+              : (Number(album?.pricePhoto) || 2000)
+          }
         />
       )}
 
@@ -695,9 +724,9 @@ export default function AlbumDetail() {
               </div>
               <p className="text-xs text-gray-300 truncate mt-0.5">
                 {itemCount === 1 && '💡 Sumá 1 foto más y obtené 10% OFF en todo tu pack'}
-                {itemCount >= 2 && itemCount < 5 && `💡 Sumá ${5 - itemCount} más para desbloquear 20% OFF`}
-                {itemCount >= 5 && itemCount < 10 && `💡 Sumá ${10 - itemCount} más para desbloquear 30% OFF`}
-                {itemCount >= 10 && '🔥 ¡Tenés el descuento máximo del 30% OFF aplicado!'}
+                {itemCount === 2 && '💡 Sumá 1 más para desbloquear 20% OFF'}
+                {itemCount >= 3 && itemCount < 5 && `💡 Sumá ${5 - itemCount} más para desbloquear 30% OFF`}
+                {itemCount >= 5 && '🔥 ¡Tenés el descuento máximo del 30% OFF aplicado!'}
               </p>
             </div>
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { collection, getDocs, query, orderBy, doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, where, doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import AlbumCard from '../components/AlbumCard';
 import { getLowResSampleUrl, getHighResDownloadUrl } from '../services/cloudinary';
@@ -265,29 +265,25 @@ export default function Home() {
       const qLower = q.toLowerCase();
       const matchedDocs = [];
 
-      // 1) Si no contiene '@' y parece un ID directo, intentamos buscar el documento por ID
-      if (!q.includes('@') && q.length >= 6) {
-        try {
-          const directSnap = await getDoc(doc(db, 'orders', q));
-          if (directSnap.exists()) {
-            matchedDocs.push({ id: directSnap.id, data: directSnap.data() });
-          }
-        } catch {
-          // continuar con búsqueda general
-        }
-      }
-
-      // 2) Búsqueda por email del cliente o coincidencia parcial de ID
-      if (matchedDocs.length === 0) {
-        const snap = await getDocs(query(collection(db, 'orders'), orderBy('createdAt', 'desc')));
-        snap.docs.forEach(d => {
-          const data = d.data();
-          const email = String(data.cliente?.email || data.clienteEmailLower || '').trim().toLowerCase();
-          const idMatch = d.id.toLowerCase() === qLower || (qLower.length >= 6 && d.id.toLowerCase().includes(qLower));
-          if (email === qLower || idMatch) {
-            matchedDocs.push({ id: d.id, data });
-          }
+      // 1) Si contiene '@', buscamos directamente con filtro indexado por clienteEmailLower (sin escanear toda la colección)
+      if (q.includes('@')) {
+        const emailSnap = await getDocs(
+          query(collection(db, 'orders'), where('clienteEmailLower', '==', qLower))
+        );
+        emailSnap.docs.forEach(d => {
+          matchedDocs.push({ id: d.id, data: d.data() });
         });
+        matchedDocs.sort((a, b) => {
+          const tA = a.data?.createdAt?.toMillis ? a.data.createdAt.toMillis() : 0;
+          const tB = b.data?.createdAt?.toMillis ? b.data.createdAt.toMillis() : 0;
+          return tB - tA;
+        });
+      } else {
+        // 2) Si es un ID de orden directo, consultamos el documento puntual en 1 sola lectura O(1)
+        const directSnap = await getDoc(doc(db, 'orders', q));
+        if (directSnap.exists()) {
+          matchedDocs.push({ id: directSnap.id, data: directSnap.data() });
+        }
       }
 
       setOrderResults(matchedDocs.map(m => sanitizeOrderForClient(m.id, m.data)));
@@ -1015,20 +1011,6 @@ export default function Home() {
           </div>
         </div>
       )}
-
-      {/* Footer discreto con acceso privado para administración */}
-      <footer className="border-t border-dark-700 py-8 px-4 mt-12">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-gray-500">
-          <p>© {new Date().getFullYear()} Ciancia Producciones · Fotografía deportiva profesional</p>
-          <Link
-            to="/admin"
-            className="text-gray-600 hover:text-gray-400 transition-colors"
-            title="Acceso exclusivo administración"
-          >
-            Acceso Admin
-          </Link>
-        </div>
-      </footer>
     </div>
   );
 }

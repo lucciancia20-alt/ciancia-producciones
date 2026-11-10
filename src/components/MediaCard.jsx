@@ -85,7 +85,7 @@ export default function MediaCard({
         if (cancelled) return;
         const nw = img.naturalWidth  || 480;
         const nh = img.naturalHeight || 360;
-        if (nh > nw * 1.08) setIsPortrait(true);
+        setIsPortrait(nh > nw * 1.08);
 
         const scale = Math.min(1, CARD_MAX_DIM / Math.max(nw, nh));
         const w = Math.max(1, Math.round(nw * scale));
@@ -116,7 +116,7 @@ export default function MediaCard({
     return () => {
       cancelled = true;
     };
-  }, [media.id, media.thumb, media.url, resolvedAlbumTitle, resolvedLogoPublicId, resolvedLogoUrl]);
+  }, [media.id, media.thumb, media.url, resolvedAlbumTitle, resolvedLogoPublicId, resolvedLogoUrl, isVideo]);
 
   return (
     <div

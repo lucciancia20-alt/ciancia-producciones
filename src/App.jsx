@@ -1,5 +1,5 @@
 import React, { Suspense, lazy } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
 import Navbar from './components/Navbar';
@@ -28,7 +28,7 @@ function RouteFallback() {
   );
 }
 
-// Public layout — with navbar
+// Public layout — with navbar and unified footer
 function PublicLayout({ children }) {
   return (
     <>
@@ -38,9 +38,20 @@ function PublicLayout({ children }) {
           {children}
         </Suspense>
       </main>
-      <footer className="border-t border-dark-700 py-8 px-4 text-center text-gray-600 text-sm mt-16">
-        <p>© 2024 Ciancia Producciones · Todos los derechos reservados</p>
-        <p className="text-xs mt-1 text-gray-700">Fotografía y video deportivo profesional · Argentina</p>
+      <footer className="border-t border-dark-700 py-8 px-4 text-gray-500 text-xs mt-16">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
+          <div>
+            <p>© {new Date().getFullYear()} Ciancia Producciones · Todos los derechos reservados</p>
+            <p className="text-[11px] mt-0.5 text-gray-600">Fotografía y video deportivo profesional · Argentina</p>
+          </div>
+          <Link
+            to="/admin"
+            className="text-gray-600 hover:text-gray-400 transition-colors"
+            title="Acceso exclusivo administración"
+          >
+            Acceso Admin
+          </Link>
+        </div>
       </footer>
     </>
   );

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { X, ShoppingCart, Play, Pause, Volume2, VolumeX, ShieldAlert, Lock } from 'lucide-react';
 import { useCart } from '../context/CartContext';
-import { getLowResSampleUrl } from '../services/cloudinary';
+import { getLowResSampleUrl, getLowResVideoUrl } from '../services/cloudinary';
 
 const LUPE_RADIUS    = 125;
 const ZOOM_FACTOR    = 2;
@@ -314,7 +314,7 @@ function LowResProtectionBadge() {
 }
 
 // ─── Visor de fotos en <canvas> con lupa 2x y escudo anticaptura ──────────────
-function PhotoMagnifier({ media, onClose, albumTitle = '', albumLogoUrl = '', albumLogoPublicId = '' }) {
+function PhotoMagnifier({ media, onClose, albumTitle = '', albumLogoUrl = '', albumLogoPublicId = '', albumBasePrice }) {
   const canvasRef = useRef(null);
   const imgObjRef = useRef(null);
   const animRef   = useRef(null);
@@ -326,7 +326,7 @@ function PhotoMagnifier({ media, onClose, albumTitle = '', albumLogoUrl = '', al
 
   const { addItem, removeItem, items } = useCart();
   const inCart    = items.some(i => i.id === media.id);
-  const itemPrice = Number(media.price) || (media.type === 'video' ? 3000 : 2000);
+  const itemPrice = Number(media.price) || Number(albumBasePrice) || (media.type === 'video' ? 3000 : 2000);
   const resolvedAlbumTitle = (albumTitle || media.albumTitle || '').trim();
   const resolvedLogoUrl = media.eventLogoUrl || albumLogoUrl || '';
   const resolvedLogoPublicId = media.eventLogoPublicId || albumLogoPublicId || '';
@@ -601,7 +601,7 @@ function PhotoMagnifier({ media, onClose, albumTitle = '', albumLogoUrl = '', al
 }
 
 // ─── Visor de videos con Entramado Anti-IA y Marca de Agua Reforzada en <canvas> ──
-function VideoViewer({ media, onClose, albumTitle = '' }) {
+function VideoViewer({ media, onClose, albumTitle = '', albumBasePrice }) {
   const videoRef           = useRef(null);
   const watermarkCanvasRef = useRef(null);
   const [playing, setPlaying] = useState(false);
@@ -609,8 +609,9 @@ function VideoViewer({ media, onClose, albumTitle = '' }) {
   const { shieldActive, restoreView } = useCaptureShield();
   const { addItem, removeItem, items } = useCart();
   const inCart    = items.some(i => i.id === media.id);
-  const itemPrice = Number(media.price) || (media.type === 'video' ? 3000 : 2000);
+  const itemPrice = Number(media.price) || Number(albumBasePrice) || (media.type === 'video' ? 3000 : 2000);
   const resolvedAlbumTitle = (albumTitle || media.albumTitle || '').trim() || WATERMARK_TEXT;
+  const previewVideoSrc = getLowResVideoUrl(media.url);
 
   const paintVideoWatermark = useCallback(() => {
     const canvas = watermarkCanvasRef.current;
@@ -701,7 +702,7 @@ function VideoViewer({ media, onClose, albumTitle = '' }) {
       >
         <video
           ref={videoRef}
-          src={media.url}
+          src={previewVideoSrc}
           className="max-h-[70vh] w-auto max-w-full object-contain select-none"
           style={{
             filter:             shieldActive ? 'blur(20px)' : 'none',
@@ -764,7 +765,7 @@ function VideoViewer({ media, onClose, albumTitle = '' }) {
 }
 
 // ─── Componente principal exportado ──────────────────────────────────────────
-export default function MagnifierViewer({ media, onClose, albumTitle = '', albumLogoUrl = '', albumLogoPublicId = '' }) {
+export default function MagnifierViewer({ media, onClose, albumTitle = '', albumLogoUrl = '', albumLogoPublicId = '', albumBasePrice }) {
   useEffect(() => {
     if (!media) return;
     const prevOverflow = document.body.style.overflow;
@@ -779,6 +780,6 @@ export default function MagnifierViewer({ media, onClose, albumTitle = '', album
 
   if (!media) return null;
   return media.type === 'video'
-    ? <VideoViewer   media={media} onClose={onClose} albumTitle={albumTitle} />
-    : <PhotoMagnifier media={media} onClose={onClose} albumTitle={albumTitle} albumLogoUrl={albumLogoUrl} albumLogoPublicId={albumLogoPublicId} />;
+    ? <VideoViewer    media={media} onClose={onClose} albumTitle={albumTitle} albumBasePrice={albumBasePrice} />
+    : <PhotoMagnifier media={media} onClose={onClose} albumTitle={albumTitle} albumLogoUrl={albumLogoUrl} albumLogoPublicId={albumLogoPublicId} albumBasePrice={albumBasePrice} />;
 }

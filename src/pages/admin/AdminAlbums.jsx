@@ -101,6 +101,13 @@ export default function AdminAlbums() {
   const enableFaceDetectionRef = useRef(true);
   useEffect(() => { uploadFilesRef.current = uploadFiles; }, [uploadFiles]);
   useEffect(() => { enableFaceDetectionRef.current = enableFaceDetection; }, [enableFaceDetection]);
+  useEffect(() => {
+    return () => {
+      uploadFilesRef.current.forEach(f => {
+        if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
+      });
+    };
+  }, []);
 
   // Espera brevemente si la foto actual está terminando su análisis IA (máx. 15s) y nunca bloquea la subida
   const waitForAI = async (id, timeoutMs = 15000) => {
@@ -1054,8 +1061,15 @@ export default function AdminAlbums() {
     setUploading(false);
     setSelectedQueueCoverId(null);
 
-    // Limpiar solo los exitosos; dejar los errores para reintentar sin recargar ni salir de la vista
-    setUploadFiles(prev => prev.filter(f => f.status !== 'done'));
+    // Limpiar solo los exitosos (liberando sus ObjectURLs en memoria); dejar los errores para reintentar
+    setUploadFiles(prev => {
+      prev.forEach(f => {
+        if (f.status === 'done' && f.previewUrl) {
+          URL.revokeObjectURL(f.previewUrl);
+        }
+      });
+      return prev.filter(f => f.status !== 'done');
+    });
     loadAlbums();
 
     // Refrescar la lista de fotos del álbum si el usuario la tiene expandida
