@@ -4,6 +4,7 @@ import { collection, getDocs, query, orderBy, where, doc, getDoc, onSnapshot } f
 import { db } from '../firebase/config';
 import AlbumCard from '../components/AlbumCard';
 import { getLowResSampleUrl, getHighResDownloadUrl } from '../services/cloudinary';
+import { DEFAULT_PRICES, PACK_RULES } from '../context/CartContext';
 import {
   Camera, Zap, Shield, Download, X, Search, CheckCircle2, Clock,
   Sparkles, ScanFace, ShoppingBag, ArrowRight, Film, Image as ImageIcon,
@@ -842,109 +843,166 @@ export default function Home() {
             )}
 
             {/* ── 4. MODAL: PACKS CON DESCUENTO ───────────────────────────── */}
-            {activeModal === 'packs' && (
-              <div className="p-6 sm:p-8 space-y-5">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-neon-green/15 border border-neon-green/40 flex items-center justify-center">
-                    <Download className="w-6 h-6 text-neon-green" />
-                  </div>
-                  <div>
-                    <span className="text-xs font-bold uppercase tracking-wider text-neon-green">Ahorro Automático</span>
-                    <h2 className="text-2xl font-black text-white">Tabla de Packs y Descuentos</h2>
-                  </div>
-                </div>
+            {activeModal === 'packs' && (() => {
+              // Precios base dinámicos: toman el precio real configurado en la base de datos (álbum activo) o DEFAULT_PRICES del sistema
+              const albumWithPhotoPrice =
+                albums.find(a => a.published !== false && Number(a.pricePhoto) > 0) ||
+                albums.find(a => Number(a.pricePhoto) > 0);
+              const albumWithVideoPrice =
+                albums.find(a => a.published !== false && Number(a.priceVideo) > 0) ||
+                albums.find(a => Number(a.priceVideo) > 0);
 
-                <p className="text-gray-300 text-sm">
-                  No necesitás activar nada: a medida que agregás fotos o videos al carrito (incluso de distintos álbumes), el sistema aplica el descuento escalonado en tiempo real.
-                </p>
+              const basePhotoPrice = Number(albumWithPhotoPrice?.pricePhoto) || DEFAULT_PRICES.PHOTO_SINGLE;
+              const baseVideoPrice = Number(albumWithVideoPrice?.priceVideo) || DEFAULT_PRICES.VIDEO_SINGLE;
 
-                {/* Precios unitarios base */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-dark-700 border border-dark-500 rounded-xl p-3.5 flex items-center justify-between">
-                    <span className="text-xs text-gray-300 flex items-center gap-1.5">
-                      <Camera className="w-4 h-4 text-neon-green" /> Foto Individual HD
+              const discountPack2 = PACK_RULES.find(r => r.minItems === 2)?.discount ?? 0.10;
+              const discountPack3 = PACK_RULES.find(r => r.minItems === 3)?.discount ?? 0.20;
+              const discountPack5 = PACK_RULES.find(r => r.minItems === 5)?.discount ?? 0.30;
+
+              const packExampleRows = [
+                {
+                  qtyLabel:    '1 archivo',
+                  packName:    'Individual',
+                  exampleQty:  1,
+                  discount:    0,
+                  rowClass:    '',
+                  qtyClass:    'text-gray-300',
+                  packClass:   'text-gray-400',
+                  totalClass:  'font-semibold text-white',
+                  isMaxTier:   false,
+                },
+                {
+                  qtyLabel:    '2 archivos',
+                  packName:    'Pack 2',
+                  exampleQty:  2,
+                  discount:    discountPack2,
+                  rowClass:    'bg-neon-green/5',
+                  qtyClass:    'text-white font-medium',
+                  packClass:   'text-neon-green font-semibold',
+                  totalClass:  'font-bold text-neon-green',
+                  isMaxTier:   false,
+                },
+                {
+                  qtyLabel:    '3 a 4 archivos',
+                  packName:    'Pack 3+',
+                  exampleQty:  3,
+                  discount:    discountPack3,
+                  rowClass:    'bg-neon-green/10',
+                  qtyClass:    'text-white font-medium',
+                  packClass:   'text-neon-green font-semibold',
+                  totalClass:  'font-bold text-neon-green',
+                  isMaxTier:   false,
+                },
+                {
+                  qtyLabel:    '5 o más archivos',
+                  packName:    'Pack 5+ 🔥',
+                  exampleQty:  5,
+                  discount:    discountPack5,
+                  rowClass:    'bg-neon-green/15',
+                  qtyClass:    'text-white font-bold',
+                  packClass:   'text-neon-green font-black',
+                  totalClass:  'font-black text-neon-green',
+                  isMaxTier:   true,
+                },
+              ];
+
+              return (
+                <div className="p-6 sm:p-8 space-y-5">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-xl bg-neon-green/15 border border-neon-green/40 flex items-center justify-center">
+                      <Download className="w-6 h-6 text-neon-green" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold uppercase tracking-wider text-neon-green">Ahorro Automático</span>
+                      <h2 className="text-2xl font-black text-white">Tabla de Packs y Descuentos</h2>
+                    </div>
+                  </div>
+
+                  <p className="text-gray-300 text-sm">
+                    No necesitás activar nada: a medida que agregás fotos o videos al carrito (incluso de distintos álbumes), el sistema aplica el descuento escalonado en tiempo real.
+                  </p>
+
+                  {/* Precios unitarios base dinámicos */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-dark-700 border border-dark-500 rounded-xl p-3.5 flex items-center justify-between">
+                      <span className="text-xs text-gray-300 flex items-center gap-1.5">
+                        <Camera className="w-4 h-4 text-neon-green" /> Foto Individual HD
+                      </span>
+                      <span className="text-white font-black text-base">{formatPrice(basePhotoPrice)}</span>
+                    </div>
+                    <div className="bg-dark-700 border border-dark-500 rounded-xl p-3.5 flex items-center justify-between">
+                      <span className="text-xs text-gray-300 flex items-center gap-1.5">
+                        <Film className="w-4 h-4 text-neon-green" /> Video / Toma Dron
+                      </span>
+                      <span className="text-white font-black text-base">{formatPrice(baseVideoPrice)}</span>
+                    </div>
+                  </div>
+
+                  {/* Tabla de escalones con cálculo automático de ejemplos */}
+                  <div className="overflow-hidden rounded-xl border border-dark-500">
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-dark-700 text-gray-400 text-xs uppercase">
+                        <tr>
+                          <th className="py-3 px-4">Cantidad</th>
+                          <th className="py-3 px-4">Pack</th>
+                          <th className="py-3 px-4">Descuento</th>
+                          <th className="py-3 px-4 text-right">Ej. en Fotos</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-dark-600 bg-dark-800">
+                        {packExampleRows.map((row) => {
+                          const rawSubtotal = basePhotoPrice * row.exampleQty;
+                          const finalTotal  = Math.round(rawSubtotal * (1 - row.discount));
+                          const discountPct = Math.round(row.discount * 100);
+
+                          return (
+                            <tr key={row.packName} className={row.rowClass}>
+                              <td className={`py-3 px-4 ${row.qtyClass}`}>{row.qtyLabel}</td>
+                              <td className={`py-3 px-4 ${row.packClass}`}>{row.packName}</td>
+                              <td className="py-3 px-4">
+                                {discountPct === 0 ? (
+                                  <span className="text-gray-400">—</span>
+                                ) : row.isMaxTier ? (
+                                  <span className="bg-neon-green text-black font-black text-xs px-2.5 py-0.5 rounded-full">
+                                    {discountPct}% OFF
+                                  </span>
+                                ) : (
+                                  <span className="badge-neon">{discountPct}% OFF</span>
+                                )}
+                              </td>
+                              <td className={`py-3 px-4 text-right ${row.totalClass}`}>
+                                {discountPct > 0 && (
+                                  <span className="text-gray-500 line-through text-xs mr-1.5">
+                                    {formatPrice(rawSubtotal)}
+                                  </span>
+                                )}
+                                {formatPrice(finalTotal)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-xs text-gray-400 bg-dark-700 border border-dark-500 rounded-lg p-3">
+                    <Tag className="w-4 h-4 text-neon-green flex-shrink-0" />
+                    <span>
+                      Además, en el carrito podés sumar cupones promocionales de evento (como <code className="text-neon-green font-bold">CIANCIA10</code> o <code className="text-neon-green font-bold">DEPORTE20</code>) sobre el total con Pack.
                     </span>
-                    <span className="text-white font-black text-base">$2.000</span>
                   </div>
-                  <div className="bg-dark-700 border border-dark-500 rounded-xl p-3.5 flex items-center justify-between">
-                    <span className="text-xs text-gray-300 flex items-center gap-1.5">
-                      <Film className="w-4 h-4 text-neon-green" /> Video / Toma Dron
-                    </span>
-                    <span className="text-white font-black text-base">$3.000</span>
+
+                  <div className="flex flex-col sm:flex-row gap-3 pt-1">
+                    <button type="button" onClick={scrollToAlbums} className="btn-neon flex-1 flex items-center justify-center gap-2">
+                      <ShoppingBag className="w-4 h-4" /> Armar mi Pack ahora
+                    </button>
+                    <button type="button" onClick={closeModal} className="btn-outline-neon">
+                      Cerrar
+                    </button>
                   </div>
                 </div>
-
-                {/* Tabla de escalones */}
-                <div className="overflow-hidden rounded-xl border border-dark-500">
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-dark-700 text-gray-400 text-xs uppercase">
-                      <tr>
-                        <th className="py-3 px-4">Cantidad</th>
-                        <th className="py-3 px-4">Pack</th>
-                        <th className="py-3 px-4">Descuento</th>
-                        <th className="py-3 px-4 text-right">Ej. en Fotos</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-dark-600 bg-dark-800">
-                      <tr>
-                        <td className="py-3 px-4 text-gray-300">1 archivo</td>
-                        <td className="py-3 px-4 text-gray-400">Individual</td>
-                        <td className="py-3 px-4 text-gray-400">—</td>
-                        <td className="py-3 px-4 text-right font-semibold text-white">$2.000</td>
-                      </tr>
-                      <tr className="bg-neon-green/5">
-                        <td className="py-3 px-4 text-white font-medium">2 archivos</td>
-                        <td className="py-3 px-4 text-neon-green font-semibold">Pack 2</td>
-                        <td className="py-3 px-4">
-                          <span className="badge-neon">10% OFF</span>
-                        </td>
-                        <td className="py-3 px-4 text-right font-bold text-neon-green">
-                          <span className="text-gray-500 line-through text-xs mr-1.5">$4.000</span>$3.600
-                        </td>
-                      </tr>
-                      <tr className="bg-neon-green/10">
-                        <td className="py-3 px-4 text-white font-medium">3 a 4 archivos</td>
-                        <td className="py-3 px-4 text-neon-green font-semibold">Pack 3+</td>
-                        <td className="py-3 px-4">
-                          <span className="badge-neon">20% OFF</span>
-                        </td>
-                        <td className="py-3 px-4 text-right font-bold text-neon-green">
-                          <span className="text-gray-500 line-through text-xs mr-1.5">$6.000</span>$4.800
-                        </td>
-                      </tr>
-                      <tr className="bg-neon-green/15">
-                        <td className="py-3 px-4 text-white font-bold">5 o más archivos</td>
-                        <td className="py-3 px-4 text-neon-green font-black">Pack 5+ 🔥</td>
-                        <td className="py-3 px-4">
-                          <span className="bg-neon-green text-black font-black text-xs px-2.5 py-0.5 rounded-full">
-                            30% OFF
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-right font-black text-neon-green">
-                          <span className="text-gray-500 line-through text-xs mr-1.5">$10.000</span>$7.000
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="flex items-center gap-2 text-xs text-gray-400 bg-dark-700 border border-dark-500 rounded-lg p-3">
-                  <Tag className="w-4 h-4 text-neon-green flex-shrink-0" />
-                  <span>
-                    Además, en el carrito podés sumar cupones promocionales de evento (como <code className="text-neon-green font-bold">CIANCIA10</code> o <code className="text-neon-green font-bold">DEPORTE20</code>) sobre el total con Pack.
-                  </span>
-                </div>
-
-                <div className="flex flex-col sm:flex-row gap-3 pt-1">
-                  <button type="button" onClick={scrollToAlbums} className="btn-neon flex-1 flex items-center justify-center gap-2">
-                    <ShoppingBag className="w-4 h-4" /> Armar mi Pack ahora
-                  </button>
-                  <button type="button" onClick={closeModal} className="btn-outline-neon">
-                    Cerrar
-                  </button>
-                </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* ── 5. MODAL: ¿CÓMO FUNCIONA? (GUÍA EN 3 PASOS) ─────────────── */}
             {activeModal === 'como-funciona' && (
