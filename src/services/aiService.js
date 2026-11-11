@@ -374,9 +374,10 @@ function collectTesseractWords(data) {
 }
 
 /**
- * Filtro anti-ruido del perfil estricto: un dígito suelto solo se acepta si tiene un vecino
- * numérico pegado en la misma línea (fragmento de un dorsal partido, ej. "1" + "23" → "123").
- * Los dígitos aislados (pasto, letras de marcas de agua, sombras) se descartan.
+ * Une fragmentos numéricos contiguos de la misma línea (dorsal partido, ej. "1" + "23" → "123"
+ * o "1" + "0" → "10" en una camiseta de fútbol).
+ * Perfil estricto: los dígitos aislados (pasto, letras de marcas de agua, sombras) se descartan.
+ * Perfil flexible (`allowIsolatedSingleDigit`): los dígitos únicos aislados se conservan.
  */
 function mergeAndFilterIsolatedDigits(tokens, { minDigits, allowIsolatedSingleDigit }) {
   const withBox = tokens.filter(t => t.bbox);
@@ -445,9 +446,10 @@ function extractNumbersFromTesseractData(data, profile = OCR_PROFILES.contact, m
     });
   }
 
-  const candidates = profile.allowIsolatedSingleDigit && profile.minDigits <= 1
-    ? tokens.map(t => t.digits)
-    : mergeAndFilterIsolatedDigits(tokens, profile);
+  // Ambos perfiles unen fragmentos contiguos de un mismo número (ej. "1" + "0" → "10" en una camiseta,
+  // frecuente con PSM 11 que segmenta caracteres sueltos). El perfil flexible además conserva los
+  // dígitos únicos aislados; el estricto los descarta como ruido.
+  const candidates = mergeAndFilterIsolatedDigits(tokens, profile);
 
   // Fallback sobre data.text (solo perfil flexible) cuando el bloque general supera el umbral reducido
   if (candidates.length === 0 && profile.textFallback && data?.text) {
