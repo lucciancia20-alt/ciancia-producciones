@@ -160,17 +160,67 @@ Reglas estrictas:
 5. "hasVisibleFace": booleano (true o false). Debe ser false si las personas en la foto llevan casco y gafas/lentes que cubren los rasgos faciales, casco integral, están agachadas sobre el manubrio ocultando la cara, de espaldas o demasiado lejos para distinguir un rostro. Solo debe ser true si hay al menos un rostro descubierto y claramente identificable para reconocimiento facial.
 6. Usa EXCLUSIVAMENTE colores de esta paleta estándar en español: "blanco", "negro", "gris", "rojo", "azul", "celeste", "verde", "amarillo", "naranja", "rosa", "violeta", "fluor".`;
 
-// ─── Pipeline OCR con Preprocesamiento <canvas> + Tesseract.js para Camisetas ─
-// Umbral de confianza reducido (38%) para compensar distorsiones por pliegues de la tela,
-// sudor o curvatura en camisetas y shorts de fútbol.
-export const TESSERACT_OCR_CONFIG = {
-  charWhitelist:       '0123456789',
-  pageSegMode:         '11', // PSM 11: Sparse text (busca números sueltos en cualquier parte de la foto)
-  fallbackPageSegMode: '12', // PSM 12: Sparse text with OSD
-  minConfidence:       38,   // Umbral reducido para tolerar pliegues en camisetas deportivas
-  contrastBoost:       115,  // Incremento agresivo de contraste antes de binarizar
-  maxCanvasDim:        1600,
+// ─── Pipeline OCR con Preprocesamiento <canvas> + Tesseract.js (perfiles por deporte) ─
+// El pipeline OCR se adapta a la categoría/etiqueta del álbum:
+//   • Perfil "contact" (Fútbol / Deportes de contacto) → FLEXIBLE: alto contraste + binarización,
+//     PSM 11/12 (sparse text) y umbral de confianza bajo para tolerar pliegues de la tela.
+//   • Perfil "endurance" (Ciclismo / Running / Trail — POR DEFECTO) → ESTRICTO: escala de grises
+//     suave sin binarizar, PSM 3 (segmentación automática en bloques estructurados, como el cartón
+//     del dorsal), umbral de confianza alto y filtro anti-ruido de dígitos sueltos aislados.
+export const OCR_PROFILES = {
+  contact: {
+    id:                  'contact',
+    label:               'Fútbol / Deportes de contacto (perfil flexible)',
+    charWhitelist:       '0123456789',
+    pageSegMode:         '11',  // PSM 11: Sparse text (números sueltos en cualquier parte de la foto)
+    fallbackPageSegMode: '12',  // PSM 12: Sparse text with OSD
+    minConfidence:       38,    // Umbral reducido para tolerar pliegues en camisetas deportivas
+    contrastBoost:       115,   // Incremento agresivo de contraste antes de binarizar
+    binarize:            true,  // Thresholding duro (blanco/negro)
+    invertPass:          true,  // Segunda pasada invertida (números claros sobre camiseta oscura)
+    minDigits:           1,     // Camisetas de fútbol usan 1-2 dígitos
+    allowIsolatedSingleDigit: true,
+    textFallback:        true,  // Permite rescatar números desde data.text
+    maxCanvasDim:        1600,
+  },
+  endurance: {
+    id:                  'endurance',
+    label:               'Ciclismo / Running (perfil estricto)',
+    charWhitelist:       '0123456789',
+    pageSegMode:         '3',   // PSM 3: segmentación automática por bloques (cartón del dorsal / placa)
+    fallbackPageSegMode: null,  // Sin fallback sparse: es la principal fuente de falsos positivos
+    minConfidence:       72,    // Umbral alto para rechazar pasto, ruido y marcas de agua
+    contrastBoost:       35,    // Contraste suave (sin binarización extrema)
+    binarize:            false, // Se entrega en escala de grises; Tesseract aplica su propio Otsu
+    invertPass:          false,
+    minDigits:           2,     // Dorsales de carrera suelen tener 2-5 dígitos
+    allowIsolatedSingleDigit: false,
+    textFallback:        false,
+    maxCanvasDim:        1600,
+  },
 };
+
+/** Retrocompatibilidad: configuración histórica (perfil flexible de fútbol). */
+export const TESSERACT_OCR_CONFIG = OCR_PROFILES.contact;
+
+const CONTACT_SPORT_PATTERN = /f[uú]tbol|futsal|f[uú]tbol\s*5|soccer|rugby|hockey|handball|h[aá]ndbol|b[aá]squet|basket|v[oó]ley|volley|waterpolo|contacto/i;
+
+/**
+ * Determina el perfil OCR según la categoría/etiqueta (o lista de etiquetas) del álbum.
+ * Cualquier valor que no sea explícitamente un deporte de contacto usa el perfil estricto
+ * de Ciclismo / Running (por defecto).
+ *
+ * @param {string|string[]|null|undefined} sportType
+ * @returns {typeof OCR_PROFILES.contact}
+ */
+export function resolveOcrProfile(sportType) {
+  const raw = Array.isArray(sportType) ? sportType.join(' ') : String(sportType ?? '');
+  const normalized = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (CONTACT_SPORT_PATTERN.test(raw) || CONTACT_SPORT_PATTERN.test(normalized)) {
+    return OCR_PROFILES.contact;
+  }
+  return OCR_PROFILES.endurance;
+}
 
 let tesseractWorkerPromise = null;
 
@@ -178,17 +228,27 @@ let tesseractWorkerPromise = null;
  * Preprocesa una imagen en un <canvas> temporal antes de pasarla a Tesseract:
  * 1) Escala preservando nitidez (hasta 1600px).
  * 2) Convierte a escala de grises mediante luminancia perceptual.
- * 3) Aplica estiramiento agresivo de contraste + binarización adaptativa (thresholding)
- *    para que los números estampados en camisetas de fútbol resalten nítidamente sobre la tela.
+ * 3a) Perfil flexible (`binarize: true`): estiramiento agresivo de contraste + binarización
+ *     adaptativa para que los números estampados en camisetas de fútbol resalten sobre la tela.
+ * 3b) Perfil estricto (`binarize: false`): contraste suave en escala de grises, sin thresholding,
+ *     para no convertir pasto, sombras o marcas de agua en "trazos" que parezcan dígitos.
  *
  * @param {File|Blob} file
  * @param {Object} options
- * @param {boolean} [options.invert=false] - Si es true, invierte blanco/negro (ideal para números blancos/claros sobre camisetas oscuras)
+ * @param {boolean} [options.invert=false] - Si es true, invierte la polaridad (números claros sobre fondo oscuro)
  * @param {number}  [options.contrast=115] - Nivel de contraste (-255 a 255)
  * @param {number}  [options.threshold]    - Umbral de binarización (si se omite, usa la media adaptativa de luminancia)
+ * @param {boolean} [options.binarize=true] - Si es false, se omite la binarización (solo escala de grises + contraste)
+ * @param {number}  [options.maxCanvasDim=1600]
  * @returns {Promise<HTMLCanvasElement>}
  */
-export function preprocessImageForOcr(file, { invert = false, contrast = TESSERACT_OCR_CONFIG.contrastBoost, threshold = null } = {}) {
+export function preprocessImageForOcr(file, {
+  invert = false,
+  contrast = OCR_PROFILES.contact.contrastBoost,
+  threshold = null,
+  binarize = true,
+  maxCanvasDim = OCR_PROFILES.contact.maxCanvasDim,
+} = {}) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
@@ -198,7 +258,7 @@ export function preprocessImageForOcr(file, { invert = false, contrast = TESSERA
       try {
         const nw = img.naturalWidth || img.width || 1;
         const nh = img.naturalHeight || img.height || 1;
-        const scale = Math.min(1, TESSERACT_OCR_CONFIG.maxCanvasDim / Math.max(nw, nh));
+        const scale = Math.min(1, maxCanvasDim / Math.max(nw, nh));
         const w = Math.max(1, Math.round(nw * scale));
         const h = Math.max(1, Math.round(nh * scale));
 
@@ -212,7 +272,7 @@ export function preprocessImageForOcr(file, { invert = false, contrast = TESSERA
         const data = imgData.data;
         const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
 
-        // Paso 1: Convertir a escala de grises, aplicar contraste agresivo y calcular luminancia media
+        // Paso 1: Convertir a escala de grises, aplicar contraste y calcular luminancia media
         const grayValues = new Uint8Array(data.length / 4);
         let sumLum = 0;
 
@@ -225,6 +285,20 @@ export function preprocessImageForOcr(file, { invert = false, contrast = TESSERA
           const contrasted = Math.max(0, Math.min(255, factor * (lum - 128) + 128));
           grayValues[p] = contrasted;
           sumLum += contrasted;
+        }
+
+        if (!binarize) {
+          // Perfil estricto: escala de grises suave (sin thresholding duro)
+          for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+            const v = invert ? 255 - grayValues[p] : grayValues[p];
+            data[i]     = v;
+            data[i + 1] = v;
+            data[i + 2] = v;
+            data[i + 3] = 255;
+          }
+          ctx.putImageData(imgData, 0, 0);
+          resolve(canvas);
+          return;
         }
 
         // Paso 2: Thresholding / Binarización para separar el dorsal de la textura de la camiseta
@@ -268,8 +342,8 @@ async function getTesseractWorker() {
       const createWorker = Tesseract.createWorker || Tesseract.default?.createWorker;
       const worker = await createWorker('eng');
       await worker.setParameters({
-        tessedit_char_whitelist: TESSERACT_OCR_CONFIG.charWhitelist,
-        tessedit_pageseg_mode:   TESSERACT_OCR_CONFIG.pageSegMode, // PSM 11: Sparse text
+        tessedit_char_whitelist: OCR_PROFILES.contact.charWhitelist,
+        tessedit_pageseg_mode:   OCR_PROFILES.contact.pageSegMode,
         preserve_interword_spaces: '1',
       });
       return worker;
@@ -281,36 +355,102 @@ async function getTesseractWorker() {
   return tesseractWorkerPromise;
 }
 
-function extractNumbersFromTesseractData(data, minConfidence = TESSERACT_OCR_CONFIG.minConfidence) {
-  const candidates = [];
-
-  // 1) Soporte Tesseract v5 (`data.words`) y Tesseract v6/v7 (`data.blocks` -> `paragraphs` -> `lines` -> `words`)
-  const wordList = [];
-  if (Array.isArray(data?.words)) {
-    wordList.push(...data.words);
-  }
+/** Recolecta las palabras de Tesseract v5 (`data.words`) o v6/v7 (`data.blocks` → … → `words`) sin duplicados. */
+function collectTesseractWords(data) {
+  const fromBlocks = [];
   if (Array.isArray(data?.blocks)) {
     for (const block of data.blocks) {
       for (const para of block?.paragraphs || []) {
         for (const line of para?.lines || []) {
           for (const word of line?.words || []) {
-            wordList.push(word);
+            fromBlocks.push(word);
           }
         }
       }
     }
   }
+  if (fromBlocks.length > 0) return fromBlocks;
+  return Array.isArray(data?.words) ? data.words : [];
+}
 
-  for (const w of wordList) {
-    const conf = typeof w?.confidence === 'number' ? w.confidence : 0;
-    const digits = String(w?.text || '').replace(/\D/g, '').trim();
-    if (digits && conf >= minConfidence) {
-      candidates.push(digits);
+/**
+ * Filtro anti-ruido del perfil estricto: un dígito suelto solo se acepta si tiene un vecino
+ * numérico pegado en la misma línea (fragmento de un dorsal partido, ej. "1" + "23" → "123").
+ * Los dígitos aislados (pasto, letras de marcas de agua, sombras) se descartan.
+ */
+function mergeAndFilterIsolatedDigits(tokens, { minDigits, allowIsolatedSingleDigit }) {
+  const withBox = tokens.filter(t => t.bbox);
+  const withoutBox = tokens.filter(t => !t.bbox);
+
+  // Ordenamos por línea (centro vertical) y luego por X para unir fragmentos contiguos
+  withBox.sort((a, b) => (a.cy - b.cy) || (a.bbox.x0 - b.bbox.x0));
+  const groups = [];
+  for (const tok of withBox) {
+    const last = groups[groups.length - 1];
+    const prev = last?.[last.length - 1];
+    if (prev) {
+      const hPrev = prev.bbox.y1 - prev.bbox.y0;
+      const hTok = tok.bbox.y1 - tok.bbox.y0;
+      const hRef = Math.max(1, Math.max(hPrev, hTok));
+      const sameLine = Math.abs(prev.cy - tok.cy) <= hRef * 0.5;
+      const similarHeight = Math.min(hPrev, hTok) / hRef >= 0.6;
+      const gap = tok.bbox.x0 - prev.bbox.x1;
+      const adjacent = gap >= -hRef * 0.2 && gap <= hRef * 0.6;
+      if (sameLine && similarHeight && adjacent) {
+        last.push(tok);
+        continue;
+      }
     }
+    groups.push([tok]);
   }
 
-  // 2) Fallback sobre data.text cuando el bloque general supera el umbral de confianza reducido
-  if (candidates.length === 0 && data?.text) {
+  const results = [];
+  for (const g of groups) {
+    const merged = g.map(t => t.digits).join('');
+    if (merged.length >= minDigits || (allowIsolatedSingleDigit && merged.length >= 1)) {
+      results.push(merged);
+    }
+  }
+  for (const t of withoutBox) {
+    if (t.digits.length >= minDigits || allowIsolatedSingleDigit) results.push(t.digits);
+  }
+  return results;
+}
+
+function extractNumbersFromTesseractData(data, profile = OCR_PROFILES.contact, minConfidence = profile.minConfidence) {
+  const tokens = [];
+  const pageHeight = Number(data?.imageHeight) || 0;
+
+  for (const w of collectTesseractWords(data)) {
+    const conf = typeof w?.confidence === 'number' ? w.confidence : 0;
+    const digits = String(w?.text || '').replace(/\D/g, '').trim();
+    if (!digits || conf < minConfidence) continue;
+
+    const bbox = w?.bbox && typeof w.bbox.x0 === 'number' ? w.bbox : null;
+    if (bbox && profile.id === 'endurance') {
+      const bh = bbox.y1 - bbox.y0;
+      const bw = bbox.x1 - bbox.x0;
+      // Descartamos trazos diminutos (textura de pasto/ripio) y formas imposibles para un dígito
+      if (bh < 12) continue;
+      if (pageHeight > 0 && bh < pageHeight * 0.012) continue;
+      const perDigitAspect = bw / Math.max(1, digits.length) / Math.max(1, bh);
+      if (perDigitAspect < 0.18 || perDigitAspect > 1.4) continue;
+    }
+
+    tokens.push({
+      digits,
+      conf,
+      bbox,
+      cy: bbox ? (bbox.y0 + bbox.y1) / 2 : 0,
+    });
+  }
+
+  const candidates = profile.allowIsolatedSingleDigit && profile.minDigits <= 1
+    ? tokens.map(t => t.digits)
+    : mergeAndFilterIsolatedDigits(tokens, profile);
+
+  // Fallback sobre data.text (solo perfil flexible) cuando el bloque general supera el umbral reducido
+  if (candidates.length === 0 && profile.textFallback && data?.text) {
     const overallConf = typeof data.confidence === 'number' ? data.confidence : minConfidence;
     if (overallConf >= minConfidence * 0.8) {
       const matches = String(data.text).match(/\b\d{1,5}\b/g) || [];
@@ -318,54 +458,67 @@ function extractNumbersFromTesseractData(data, minConfidence = TESSERACT_OCR_CON
     }
   }
 
-  return cleanBibsList(candidates);
+  return cleanBibsList(candidates, { minDigits: profile.minDigits });
 }
 
 /**
- * Ejecuta Tesseract OCR con preprocesamiento de alto contraste y binarización en <canvas>
- * (tanto polaridad normal para dorsales oscuros sobre camiseta clara como polaridad invertida
- * para dorsales claros/blancos sobre camiseta oscura) usando PSM 11/12 y whitelist '0123456789'.
+ * Ejecuta Tesseract OCR aplicando el perfil correspondiente al deporte del álbum.
+ *  - Fútbol / contacto: binarización de alto contraste (polaridad normal + invertida), PSM 11/12, conf ≥ 38%.
+ *  - Ciclismo / Running (por defecto): escala de grises suave, PSM 3 (bloques), conf ≥ 72%,
+ *    descarte de dígitos sueltos aislados.
  *
  * @param {File|Blob} imageFile
+ * @param {Object} [options]
+ * @param {string|string[]} [options.sportType] - Categoría/etiqueta del álbum (ej. "Fútbol", "Ciclismo")
  * @returns {Promise<string[]>}
  */
-export async function detectNumbersWithTesseractOcr(imageFile) {
+export async function detectNumbersWithTesseractOcr(imageFile, { sportType } = {}) {
   if (!imageFile || !imageFile.type || !imageFile.type.startsWith('image/')) return [];
+  const profile = resolveOcrProfile(sportType);
   try {
     const worker = await getTesseractWorker();
     const detected = new Set();
+    const polarityPasses = profile.invertPass ? [false, true] : [false];
 
-    // Pasada 1: Polaridad normal (números oscuros sobre fondo claro) + Polaridad invertida (números blancos/claros sobre camiseta de color/oscura)
-    for (const invertPass of [false, true]) {
+    for (const invertPass of polarityPasses) {
       const processedCanvas = await preprocessImageForOcr(imageFile, {
-        invert:   invertPass,
-        contrast: TESSERACT_OCR_CONFIG.contrastBoost,
+        invert:       invertPass,
+        contrast:     profile.contrastBoost,
+        binarize:     profile.binarize,
+        maxCanvasDim: profile.maxCanvasDim,
       });
 
       await worker.setParameters({
-        tessedit_char_whitelist: TESSERACT_OCR_CONFIG.charWhitelist,
-        tessedit_pageseg_mode:   TESSERACT_OCR_CONFIG.pageSegMode, // PSM 11 (Sparse text)
+        tessedit_char_whitelist: profile.charWhitelist,
+        tessedit_pageseg_mode:   profile.pageSegMode,
       });
 
       const { data } = await worker.recognize(processedCanvas, {}, { text: true, blocks: true });
-      const nums = extractNumbersFromTesseractData(data, TESSERACT_OCR_CONFIG.minConfidence);
+      const nums = extractNumbersFromTesseractData(
+        { ...data, imageHeight: processedCanvas.height },
+        profile,
+      );
       nums.forEach(n => detected.add(n));
 
-      // Si en la pasada invertida aún no detectó dígitos, probamos PSM 12 (Sparse text with OSD) sobre el canvas binarizado
-      if (detected.size === 0 && invertPass === true) {
+      // Perfil flexible: si en la última pasada aún no hay dígitos, probamos el PSM de respaldo (12)
+      const isLastPass = invertPass === polarityPasses[polarityPasses.length - 1];
+      if (detected.size === 0 && isLastPass && profile.fallbackPageSegMode) {
         await worker.setParameters({
-          tessedit_char_whitelist: TESSERACT_OCR_CONFIG.charWhitelist,
-          tessedit_pageseg_mode:   TESSERACT_OCR_CONFIG.fallbackPageSegMode, // PSM 12
+          tessedit_char_whitelist: profile.charWhitelist,
+          tessedit_pageseg_mode:   profile.fallbackPageSegMode,
         });
         const { data: osdData } = await worker.recognize(processedCanvas, {}, { text: true, blocks: true });
-        const osdNums = extractNumbersFromTesseractData(osdData, TESSERACT_OCR_CONFIG.minConfidence);
+        const osdNums = extractNumbersFromTesseractData(
+          { ...osdData, imageHeight: processedCanvas.height },
+          profile,
+        );
         osdNums.forEach(n => detected.add(n));
       }
     }
 
     const finalNumbers = [...detected];
     if (finalNumbers.length > 0) {
-      console.log(`[aiService] Tesseract OCR (PSM 11/12, conf>=${TESSERACT_OCR_CONFIG.minConfidence}%) -> números: [${finalNumbers.join(', ')}]`);
+      console.log(`[aiService] Tesseract OCR [${profile.label}] (PSM ${profile.pageSegMode}, conf>=${profile.minConfidence}%) -> números: [${finalNumbers.join(', ')}]`);
     }
     return finalNumbers;
   } catch (err) {
@@ -432,12 +585,13 @@ function withTimeout(promiseFactory, ms) {
   return Promise.race([promiseFactory(controller.signal), timeout]).finally(() => clearTimeout(timer));
 }
 
-function cleanBibsList(rawBibs) {
+function cleanBibsList(rawBibs, { minDigits = 1 } = {}) {
   if (!Array.isArray(rawBibs)) return [];
+  const min = Math.max(1, Number(minDigits) || 1);
   return [...new Set(
     rawBibs
       .map(v => String(v ?? '').replace(/\D/g, '').trim())
-      .filter(v => v.length >= 1 && v.length <= 5 && !/^0+$/.test(v))
+      .filter(v => v.length >= min && v.length <= 5 && !/^0+$/.test(v))
   )];
 }
 
@@ -642,9 +796,12 @@ async function callGeminiOnce(apiKey, base64, mimeType) {
  *   como motor de respaldo (o viceversa según las claves disponibles).
  *
  * @param {File|Blob} imageFile
+ * @param {Object} [options]
+ * @param {string|string[]} [options.sportType] - Categoría/etiqueta del álbum; define el perfil OCR (estricto o flexible)
  * @returns {Promise<{ bibs: string[], dorsals: string[], helmetColors: string[], bikeColors: string[], jerseyColors: string[] }>}
  */
-export async function detectVisualAttributesFromFile(imageFile) {
+export async function detectVisualAttributesFromFile(imageFile, { sportType } = {}) {
+  const ocrProfile = resolveOcrProfile(sportType);
   const emptyResult = { bibs: [], dorsals: [], helmetColors: [], bikeColors: [], jerseyColors: [], hasVisibleFace: true };
   try {
     const groqKeys = getGroqApiKeys();
@@ -653,7 +810,7 @@ export async function detectVisualAttributesFromFile(imageFile) {
     // Si no hay claves de API configuradas, ejecutamos directamente el pipeline local Tesseract OCR con preprocesamiento <canvas>
     if (groqKeys.length === 0 && geminiKeys.length === 0) {
       const ocrNumbers = await settleWithin(
-        detectNumbersWithTesseractOcr(imageFile),
+        detectNumbersWithTesseractOcr(imageFile, { sportType }),
         15000,
         [],
         'Tesseract OCR para camisetas/dorsales'
@@ -705,13 +862,13 @@ export async function detectVisualAttributesFromFile(imageFile) {
         let mergedBibs = attributes.bibs;
         if (mergedBibs.length === 0) {
           const ocrBibs = await settleWithin(
-            detectNumbersWithTesseractOcr(imageFile),
+            detectNumbersWithTesseractOcr(imageFile, { sportType }),
             12000,
             [],
             'Tesseract OCR complementario para camisetas'
           );
           if (ocrBibs.length > 0) {
-            mergedBibs = cleanBibsList([...mergedBibs, ...ocrBibs]);
+            mergedBibs = cleanBibsList([...mergedBibs, ...ocrBibs], { minDigits: ocrProfile.minDigits });
           }
         }
 
@@ -743,7 +900,7 @@ export async function detectVisualAttributesFromFile(imageFile) {
 
     // Fallback final con Tesseract OCR preprocesado si ambos intentos de red fallaron
     const fallbackOcrBibs = await settleWithin(
-      detectNumbersWithTesseractOcr(imageFile),
+      detectNumbersWithTesseractOcr(imageFile, { sportType }),
       15000,
       [],
       'Tesseract OCR fallback'
@@ -760,11 +917,11 @@ export async function detectVisualAttributesFromFile(imageFile) {
 }
 
 /**
- * detectDorsalsFromFile(imageFile)
+ * detectDorsalsFromFile(imageFile, { sportType })
  * Wrapper retrocompatible que devuelve únicamente el array de dorsales.
  */
-export async function detectDorsalsFromFile(imageFile) {
-  const res = await detectVisualAttributesFromFile(imageFile);
+export async function detectDorsalsFromFile(imageFile, { sportType } = {}) {
+  const res = await detectVisualAttributesFromFile(imageFile, { sportType });
   return res.bibs;
 }
 
@@ -960,7 +1117,12 @@ function settleWithin(promise, ms, fallback, label) {
   return Promise.race([Promise.resolve(promise).catch(() => fallback), timeout]).finally(() => clearTimeout(timer));
 }
 
-export function analyzeImageFile(file, { shouldCancel, enableFaceDetection = true } = {}) {
+/**
+ * analyzeImageFile(file, { shouldCancel, enableFaceDetection, sportType })
+ * @param {string|string[]} [options.sportType] - Categoría/etiqueta del álbum (ej. "Fútbol", "Ciclismo", "Trail Running").
+ *   Fútbol / contacto → perfil OCR flexible; cualquier otro valor (o vacío) → perfil estricto Ciclismo/Running.
+ */
+export function analyzeImageFile(file, { shouldCancel, enableFaceDetection = true, sportType } = {}) {
   const emptyAttrs = { bibs: [], dorsals: [], helmetColors: [], bikeColors: [], jerseyColors: [], hasVisibleFace: true };
   const run = async () => {
     try {
@@ -969,7 +1131,7 @@ export function analyzeImageFile(file, { shouldCancel, enableFaceDetection = tru
       }
       // 1) Ejecuta primero la extracción de dorsales, colores y visibilidad de rostro (hasVisibleFace)
       const attrs = await settleWithin(
-        detectVisualAttributesFromFile(file),
+        detectVisualAttributesFromFile(file, { sportType }),
         28000,
         emptyAttrs,
         'Detección de dorsales y atributos visuales'

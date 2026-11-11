@@ -101,6 +101,14 @@ export default function AdminAlbums() {
   const enableFaceDetectionRef = useRef(true);
   useEffect(() => { uploadFilesRef.current = uploadFiles; }, [uploadFiles]);
   useEffect(() => { enableFaceDetectionRef.current = enableFaceDetection; }, [enableFaceDetection]);
+  // Tipo de deporte del álbum de destino (categoría + etiquetas): define el perfil OCR
+  // (Fútbol/contacto → flexible; Ciclismo/Running u otros → estricto) en aiService.
+  const uploadSportTypeRef = useRef('');
+  useEffect(() => {
+    const target = albums.find(a => a.id === uploadAlbumId);
+    const tags = Array.isArray(target?.tags) ? target.tags : [];
+    uploadSportTypeRef.current = [target?.category, target?.sport, ...tags].filter(Boolean).join(' ');
+  }, [albums, uploadAlbumId]);
   useEffect(() => {
     return () => {
       uploadFilesRef.current.forEach(f => {
@@ -872,6 +880,7 @@ export default function AdminAlbums() {
       } = await analyzeImageFile(it.file, {
         shouldCancel: () => !uploadFilesRef.current.some(f => f.id === it.id),
         enableFaceDetection: enableFaceDetectionRef.current,
+        sportType: uploadSportTypeRef.current,
       });
       if (cancelled) return;
       setUploadFiles(prev => prev.map(f => {
