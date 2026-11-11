@@ -351,9 +351,14 @@ export default function AlbumDetail() {
   // Banner optimizado con Cloudinary: parte del original (nunca del thumb w_800/q_55), recorta al tamaño
   // del banner con encuadre inteligente (g_auto → sujeto/rostro del deportista) y q_auto,f_auto.
   // Se sirven recortes con la proporción de cada breakpoint para que el CSS casi no tenga que recortar más.
-  const heroCoverDesktop = rawHeroCover ? getBannerImageUrl(rawHeroCover, { width: 1920, height: 600 }) : null;
-  const heroCoverTablet  = rawHeroCover ? getBannerImageUrl(rawHeroCover, { width: 1280, height: 520 }) : null;
-  const heroCoverMobile  = rawHeroCover ? getBannerImageUrl(rawHeroCover, { width: 900,  height: 720 }) : null;
+  // Incluye la marca de agua del evento, más traslúcida (o_16) que la de las fotos del álbum (o_35).
+  const bannerWatermark = {
+    eventLogoPublicId: album?.eventLogoPublicId || '',
+    eventLogoUrl:      album?.eventLogoUrl || '',
+  };
+  const heroCoverDesktop = rawHeroCover ? getBannerImageUrl(rawHeroCover, { width: 1920, height: 600, ...bannerWatermark }) : null;
+  const heroCoverTablet  = rawHeroCover ? getBannerImageUrl(rawHeroCover, { width: 1280, height: 520, ...bannerWatermark }) : null;
+  const heroCoverMobile  = rawHeroCover ? getBannerImageUrl(rawHeroCover, { width: 900,  height: 720, ...bannerWatermark }) : null;
 
   return (
     <div className="min-h-screen pt-16">

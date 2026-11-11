@@ -88,19 +88,22 @@ export function extractCloudinaryPublicId(rawUrl) {
  * Construye el segmento de transformación de marca de agua dinámica de Cloudinary
  * (`l_<logo>/c_scale,w_0.42,fl_relative,o_35/fl_layer_apply,g_center`) a partir
  * del publicId o URL del logo del evento.
+ * `opacity` (0-100) y `size` (ej. `w_0.42` relativo al ancho o `h_0.55` relativo al alto)
+ * permiten variantes, como la marca más traslúcida del banner del álbum.
  */
-export function buildCloudinaryWatermarkTransform({ eventLogoPublicId = '', eventLogoUrl = '' } = {}) {
+export function buildCloudinaryWatermarkTransform({ eventLogoPublicId = '', eventLogoUrl = '', opacity = 35, size = 'w_0.42' } = {}) {
   const resolvedPublicId = (eventLogoPublicId || '').trim() || extractCloudinaryPublicId(eventLogoUrl);
+  const layerParams = `${size},fl_relative,o_${Math.max(0, Math.min(100, Math.round(opacity)))}`;
   if (resolvedPublicId) {
     // En Cloudinary los "/" dentro del public_id de un overlay se reemplazan por ":"
     const overlayId = resolvedPublicId.replace(/\//g, ':');
-    return `l_${overlayId},w_0.42,fl_relative,o_35/fl_layer_apply,g_center`;
+    return `l_${overlayId},${layerParams}/fl_layer_apply,g_center`;
   }
   const cleanUrl = (eventLogoUrl || '').trim();
   if (cleanUrl && /^https?:\/\//i.test(cleanUrl) && typeof btoa === 'function') {
     try {
       const b64 = btoa(cleanUrl).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-      return `l_fetch:${b64},w_0.42,fl_relative,o_35/fl_layer_apply,g_center`;
+      return `l_fetch:${b64},${layerParams}/fl_layer_apply,g_center`;
     } catch {
       return '';
     }
@@ -293,16 +296,35 @@ export function getHighResDownloadUrl(rawUrl, { attachment = false } = {}) {
  * @param {number} [options.width=1920]
  * @param {number} [options.height=600]
  * @param {string} [options.gravity='auto'] - 'auto' (sujeto principal), 'auto:faces' o 'face'
+ * @param {string} [options.eventLogoPublicId] - Logo del evento para la marca de agua del banner
+ * @param {string} [options.eventLogoUrl]
+ * @param {number} [options.watermarkOpacity=16] - Más traslúcida que la de las fotos del álbum (o_35)
  * @returns {string}
  */
-export function getBannerImageUrl(rawUrl, { width = 1920, height = 600, gravity = 'auto' } = {}) {
+export function getBannerImageUrl(rawUrl, {
+  width = 1920,
+  height = 600,
+  gravity = 'auto',
+  eventLogoPublicId = '',
+  eventLogoUrl = '',
+  watermarkOpacity = 16,
+} = {}) {
   if (!rawUrl || typeof rawUrl !== 'string') return '';
 
   if (rawUrl.includes('res.cloudinary.com') && rawUrl.includes('/image/upload/')) {
     const [prefix, rest] = rawUrl.split('/image/upload/');
     if (rest) {
       const cleanPath = stripCloudinaryTransforms(rest);
-      return `${prefix}/image/upload/w_${width},h_${height},c_fill,g_${gravity},q_auto,f_auto/${cleanPath}`;
+      // Marca de agua del evento: escalada según el ALTO del banner (h_0.5) para que el logo nunca
+      // desborde el recorte apaisado, y con opacidad baja para no tapar la portada.
+      const watermark = buildCloudinaryWatermarkTransform({
+        eventLogoPublicId,
+        eventLogoUrl,
+        opacity: watermarkOpacity,
+        size: 'h_0.5',
+      });
+      const base = `w_${width},h_${height},c_fill,g_${gravity},q_auto,f_auto`;
+      return `${prefix}/image/upload/${watermark ? `${base}/${watermark}` : base}/${cleanPath}`;
     }
   }
 
