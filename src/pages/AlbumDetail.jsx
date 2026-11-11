@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import MediaCard from '../components/MediaCard';
 import MagnifierViewer from '../components/MagnifierViewer';
-import { getHighResDownloadUrl, extractCloudinaryPublicId } from '../services/cloudinary';
+import { getBannerImageUrl, extractCloudinaryPublicId } from '../services/cloudinary';
 import { VISUAL_COLOR_PALETTE, VISUAL_COLOR_MAP, normalizeColorList } from '../constants/visualColors';
 import {
   Search, ArrowLeft, Camera, Video, Filter, X, ScanFace,
@@ -348,15 +348,31 @@ export default function AlbumDetail() {
     album.coverImage ||
     (media.length > 0 ? (media[0].url || media[0].thumb) : null);
 
-  // Aseguramos que el banner superior cargue siempre la versión original/alta calidad (q_auto:best) sin reducción low-res
-  const heroCover = rawHeroCover ? getHighResDownloadUrl(rawHeroCover) : null;
+  // Banner optimizado con Cloudinary: parte del original (nunca del thumb w_800/q_55), recorta al tamaño
+  // del banner con encuadre inteligente (g_auto → sujeto/rostro del deportista) y q_auto,f_auto.
+  // Se sirven recortes con la proporción de cada breakpoint para que el CSS casi no tenga que recortar más.
+  const heroCoverDesktop = rawHeroCover ? getBannerImageUrl(rawHeroCover, { width: 1920, height: 600 }) : null;
+  const heroCoverTablet  = rawHeroCover ? getBannerImageUrl(rawHeroCover, { width: 1280, height: 520 }) : null;
+  const heroCoverMobile  = rawHeroCover ? getBannerImageUrl(rawHeroCover, { width: 900,  height: 720 }) : null;
 
   return (
     <div className="min-h-screen pt-16">
       {/* Album hero — más alto para lucir la portada y encuadrar limpia la 1ra fila de fotos */}
-      <div className="relative h-80 sm:h-96 md:h-[410px] overflow-hidden bg-dark-800">
-        {heroCover ? (
-          <img src={heroCover} alt="" role="presentation" className="w-full h-full object-cover object-center" />
+      <div className="relative w-full h-80 sm:h-96 md:h-[410px] overflow-hidden bg-dark-800">
+        {heroCoverDesktop ? (
+          <picture>
+            <source media="(max-width: 640px)" srcSet={heroCoverMobile} />
+            <source media="(max-width: 1024px)" srcSet={heroCoverTablet} />
+            <img
+              src={heroCoverDesktop}
+              alt=""
+              role="presentation"
+              fetchpriority="high"
+              decoding="async"
+              className="w-full h-full object-cover"
+              style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 30%' }}
+            />
+          </picture>
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-dark-800 via-dark-900 to-black" />
         )}

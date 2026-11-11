@@ -280,6 +280,51 @@ export function getHighResDownloadUrl(rawUrl, { attachment = false } = {}) {
   return rawUrl;
 }
 
+/**
+ * Genera la URL optimizada para el banner/portada de un álbum.
+ * - Parte siempre del archivo original (descarta transformaciones previas, ej. el thumb w_800 / q_55).
+ * - Recorta exactamente al tamaño del banner (`c_fill`) con encuadre inteligente (`g_auto`): Cloudinary
+ *   centra el recorte en el sujeto principal / rostro del deportista en lugar del centro geométrico,
+ *   evitando que queden "decapitados" en el banner apaisado.
+ * - `q_auto,f_auto` entrega la mejor relación calidad/peso y formato moderno (AVIF/WebP) según el navegador.
+ *
+ * @param {string} rawUrl
+ * @param {Object} [options]
+ * @param {number} [options.width=1920]
+ * @param {number} [options.height=600]
+ * @param {string} [options.gravity='auto'] - 'auto' (sujeto principal), 'auto:faces' o 'face'
+ * @returns {string}
+ */
+export function getBannerImageUrl(rawUrl, { width = 1920, height = 600, gravity = 'auto' } = {}) {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+
+  if (rawUrl.includes('res.cloudinary.com') && rawUrl.includes('/image/upload/')) {
+    const [prefix, rest] = rawUrl.split('/image/upload/');
+    if (rest) {
+      const cleanPath = stripCloudinaryTransforms(rest);
+      return `${prefix}/image/upload/w_${width},h_${height},c_fill,g_${gravity},q_auto,f_auto/${cleanPath}`;
+    }
+  }
+
+  // Portadas externas de Unsplash (datos de ejemplo): recorte equivalente con foco en rostros
+  if (rawUrl.includes('images.unsplash.com')) {
+    try {
+      const u = new URL(rawUrl);
+      u.searchParams.set('w', String(width));
+      u.searchParams.set('h', String(height));
+      u.searchParams.set('fit', 'crop');
+      u.searchParams.set('crop', 'faces,entropy');
+      u.searchParams.set('auto', 'format');
+      u.searchParams.set('q', '80');
+      return u.toString();
+    } catch {
+      return rawUrl;
+    }
+  }
+
+  return rawUrl;
+}
+
 function formatDuration(seconds) {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
